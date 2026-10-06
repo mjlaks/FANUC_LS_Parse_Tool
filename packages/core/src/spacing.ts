@@ -124,9 +124,13 @@ export function allowedPad(kind: StmtKind, text: string): number[] | null {
     case 'wait': return /^WAIT\s+[\d.]+\(sec\)$/i.test(t) || /\bTIMEOUT\b/i.test(t) ? [1] : [4];
     case 'if-inline': return /,\s*[JLCA][ \t]/.test(t) ? [1, 4] : [1];
     case 'assign': {
-      // register assignments end with 4 spaces; the corpus has 7 nested-arithmetic ones, e.g. R[1]=((R[2]-1)*R[3]), with 1
+      // register assignments end with 4 spaces, except the forms below (each exact, from the corpus)
       if (/^(R|PR|SR)\b/i.test(t) && t.includes('$')) return [1]; // R[n]=$SYSVAR is padded 1 in the corpus
-      if (/^(R|PR|SR)\b/i.test(t)) return /\((?!-?\d+\))/.test(t.slice(t.indexOf('=') + 1)) ? [1, 4] : [4];
+      if (/^(R|PR|SR)\b/i.test(t)) {
+        // parenthesised arithmetic, e.g. R[1]=((R[2]-1)*R[3]), is padded 1; a negative literal (-3) is not arithmetic
+        const rhs = t.slice(t.indexOf('=') + 1).replace(/\(-\d+(\.\d+)?\)/g, '0');
+        return /\(/.test(rhs) && /[-+*\/]/.test(rhs) ? [1] : [4];
+      }
       return [1];
     }
     default: return [1, 4];

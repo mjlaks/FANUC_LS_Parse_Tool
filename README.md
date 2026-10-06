@@ -54,7 +54,27 @@ Milestones 2 and 3
 - **Motion options**: `Offset`, `Tool_Offset`, `VOFFSET`, `Skip`, `TB`/`TA`/`DB` (their actions are checked as instructions), `INC`, `ACC` (0..500), `PTH`, `Wjnt`, `RTCP`, `COORD`, `EV`, `AP_LD`, `RT_LD`, `PSPD`, ...; PR/VR indices checked
 - **Ranges**: `OVERRIDE` 1..100, `UFRAME_NUM`, `UTOOL_NUM`, labels 1..32766, `PULSE` width
 - **Unknown instructions**: TP macros are named by the shop, so an unrecognized name is a hint, and a near-miss of a real keyword (`CALLL`) is a warning with a suggestion; list known macros under `macros` to silence both. Only text that cannot be a macro name is an error.
-- **Spacing** (`bad-spacing` error): hand-typed spacing fails on the controller, so only the spacing the controller itself writes (as seen in the corpus) is accepted. Line numbers right-aligned in 4 columns with no space before the colon; after the colon 0 spaces for a motion, 2 for other instructions, 9 for `SELECT` cases and `ELSE,<action>`, 3 for an empty line; a fixed pad before `;` per instruction (motion 4, comments and `JMP`/`IF`/`DO`... 1, `CALL` 1 with arguments and 4 without, `WAIT <condition>` and `R`/`PR`/`SR` assignments 4, `WAIT <time>` and `WAIT ... TIMEOUT` 1); one space only between words and values inside a statement (never around `=`, `,`, `+ - * /`, `< >`, before `[`, inside `[ ]`, in `CNT 1`, `25 mm/sec` or `1.0 sec`); `WAIT` times padded to a fixed width. Text inside comments, `MESSAGE[...]` and quoted strings is free. Rules in `rules` can downgrade or turn it off (`"bad-spacing": "off"`). Bad spacing on the line being edited is hidden until you move away.
+- **Spacing** (`bad-spacing` error): hand-typed spacing fails on the controller, so only the spacing the controller itself writes (as seen in the corpus) is accepted. Text inside comments, `MESSAGE[...]` and quoted strings is free. Turn off or downgrade with `"bad-spacing"` in `rules`; errors on the line being edited are hidden until you move away. The rules:
+  - Line number right-aligned in 4 columns, no space before the colon.
+  - Spaces after the colon: motion 0, empty line 3, `SELECT` case lines and `ELSE,<action>` 9, everything else (including comments and disabled `//` lines) 2.
+  - Inside a statement: one space only between words and values (`JMP LBL[1]`, `J P[1] 50% CNT100`, `IF (...) THEN`, `AND`/`OR`). Never around `=` `,` `+ - * /` `< >`, before `[`, inside `[ ]`, in `CNT 1`, `25 mm/sec` or `1.0 sec`. `WAIT <time>` is padded so `WAIT` plus gap plus the number is 7 characters (`WAIT    .50(sec)`, `WAIT   2.00(sec)`).
+  - Spaces before the closing `;`, per instruction form (counts from the corpus):
+
+    | Form | Spaces before `;` |
+    | --- | --- |
+    | Motion (`J`/`L`/`C`/`A`) | 4 |
+    | `!` comment, `JMP`, `LBL`, `IF ... THEN`, `ELSE`, `ENDIF`, `SELECT`, `=n,` cases, `ELSE,<action>`, `END`, `PAUSE`, `ABORT`, `VISION` | 1 |
+    | `IF cond,<action>` (not a motion action) | 1 |
+    | `CALL prog(args)` | 1 |
+    | `CALL prog` (no arguments) | 4 |
+    | Macro-style lines (`Program Status(5)`, `Clear User Page`) | 1 or 4 (corpus shows 1 with arguments, 4 without, but also a 1 for a scrubbed placeholder) |
+    | `WAIT <condition>` | 4 |
+    | `WAIT <time>(sec)`, `WAIT <condition> TIMEOUT,LBL[n]` | 1 |
+    | `R`/`PR`/`SR` assignment | 4 |
+    | `R`/`PR`/`SR` assignment from a system variable, or with parenthesised arithmetic such as `R[1]=((R[2]-1)*R[3])` (a negative literal `(-3)` is not arithmetic) | 1 |
+    | `DO`/`RO`/`GO`/`F` outputs, `UFRAME_NUM`, `UTOOL_NUM`, `OVERRIDE`, `$sysvar=`, `TIMER`, `PAYLOAD`, `UALM`, `MESSAGE` | 1 |
+    | `//` disabled line | 1 or 4 (the corpus shows both, following the instruction underneath) |
+    | Instructions the corpus never shows (`FOR`, `ENDFOR`, `MONITOR`, ...) | 1 or 4 |
 - **Style lints** (warnings; turn off with `rules`): `io-after-cnt` (output instruction directly after a CNT/CR move), `motion-before-frame` (first motion before `UFRAME_NUM` and `UTOOL_NUM` are set; skipped after a `CALL`/`RUN`)
 
 Not yet covered: type checks between operands (`R[1]=ON`), mixed AND/OR precedence rules, `/APPL` contents, `/POS` coordinate fields, KAREL calls with typed arguments.
