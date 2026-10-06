@@ -1,0 +1,8 @@
+{
+  "name": "@lscheck/cli",
+  "version": "0.1.0",
+  "description": "lscheck: syntax checker for .LS files",
+  "bin": { "lscheck": "dist/cli.js" },
+  "dependencies": { "@lscheck/core": "0.1.0" },
+  "license": "MIT"
+}

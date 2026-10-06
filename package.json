@@ -1,0 +1,17 @@
+{
+  "name": "ls-parse-tool",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "tsc -b packages/core packages/cli && npm run build -w ls-check",
+    "test": "npm run build && node --import tsx --test packages/core/test/*.test.ts packages/cli/test/*.test.ts",
+    "corpus": "node --import tsx --test packages/core/test/corpus.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

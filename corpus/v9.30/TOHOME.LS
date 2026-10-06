@@ -1,0 +1,120 @@
+/PROG  TOHOME
+/ATTR
+OWNER		= MNEDITOR;
+COMMENT		= "SAFE HOME ";
+PROG_SIZE	= 2312;
+CREATE		= DATE 22-03-26  TIME 13:12:18;
+MODIFIED	= DATE 22-03-26  TIME 13:12:18;
+FILE_NAME	= ;
+VERSION		= 0;
+LINE_COUNT	= 96;
+MEMORY_SIZE	= 2864;
+PROTECT		= READ_WRITE;
+TCD:  STACK_SIZE	= 2000,
+      TASK_PRIORITY	= 50,
+      TIME_SLICE	= 0,
+      BUSY_LAMP_OFF	= 0,
+      ABORT_REQUEST	= 0,
+      PAUSE_REQUEST	= 0;
+DEFAULT_GROUP	= 1,*,*,*,*;
+CONTROL_CODE	= 00000000 00000000;
+/APPL
+/MN
+   1:  !******************************** ;
+   2:  !COMPANY ;
+   3:  !PROJECT 0000000 ;
+   4:  !CUSTOMER Example Cell ;
+   5:  ! ;
+   6:  !Date: March 24, 2022 ;
+   7:   ;
+   8:  !This program moves the robot ;
+   9:  !Safely to home ;
+  10:  !******************************** ;
+  11:   ;
+  12:  UFRAME_NUM=R[135:Nilp Uframe] ;
+  13:  UTOOL_NUM=R[136:Base Utool] ;
+  14:  !Set R[101] for Number of Perches ;
+  15:   ;
+  16:  LBL[1] ;
+  17:  !******************************** ;
+  18:  !Get robot to HOME posn ;
+  19:  !******************************** ;
+  20:  !Execute recovery path ;
+  21:  !if possible ;
+  22:  CALL REC_PATH    ;
+  23:  !remove above if not using ;
+  24:  !recovery planner ;
+  25:   ;
+  26:  UFRAME_NUM=R[135:Nilp Uframe] ;
+  27:  UTOOL_NUM=R[136:Base Utool] ;
+  28:   ;
+  29:  !Skip get_pos if needed ;
+  30:  IF R[106:Skip Curpos]>0,JMP LBL[4] ;
+  31:  !Compare curpos with PR[s] to ;
+  32:  !set cur Location ID R[104] ;
+  33:  !First wait for robot to stop ;
+  34:  WAIT    .50(sec) ;
+  35:  CALL GET_POS    ;
+  36:  LBL[4] ;
+  37:   ;
+  38:  IF R[104:Curr Perch PR#]=0,JMP LBL[50] ;
+  39:  !check orientation (0=OK) ;
+  40:  IF R[107:Posn Orient BAD]=1,JMP LBL[51] ;
+  41:   ;
+  42:  !************************ ;
+  43:  !Put any special cases here ;
+  44:  !************************ ;
+  45:  IF R[104:Curr Perch PR#]<>2,JMP LBL[30] ;
+  46:  !at Maint pos ;
+  47:J PR[2:Maint Perch] 40% CNT100    ;
+  48:  R[104:Curr Perch PR#]=2    ;
+  49:  JMP LBL[100] ;
+  50:   ;
+  51:  LBL[30] ;
+  52:  !IF R[104:Curr Pos]<>4,JMP LBL[40 ;
+  53:  !at induc box ;
+  54:  !J PR[4:Ind Perch] 40% CNT100 ;
+  55:  !CALL IND2PRS ;
+  56:  !J PR[5:Press] 40% CNT100 ;
+  57:  !JMP LBL[100] ;
+  58:  !LBL[40] ;
+  59:   ;
+  60:  !************************ ;
+  61:  !Generic cases here ;
+  62:  !************************ ;
+  63:J PR[R[104]] 40% CNT100    ;
+  64:  !Set destination for home ;
+  65:  R[103:Dest Perch PR#]=1    ;
+  66:  CALL ROUTER    ;
+  67:  !Set destination for home ;
+  68:  JMP LBL[100] ;
+  69:   ;
+  70:  LBL[50] ;
+  71:  !Not close to known position ;
+  72:  IF R[104:Curr Perch PR#]=1,JMP LBL[100] ;
+  73:  LBL[51] ;
+  74:  !Not close to known position ;
+  75:  DO[198]=ON ;
+  76:   ;
+  77:  !Prompt for closest perch ;
+  78:  CALL GO_PERCH    ;
+  79:   ;
+  80:  DO[198]=OFF ;
+  81:  !GoPerch sets current perch ;
+  82:  !in R[104] ;
+  83:  IF R[104:Curr Perch PR#]>0,JMP LBL[4] ;
+  84:  DO[198]=ON ;
+  85:  CALL PROMPTOK_PSG('HOME_NO_GO') ;
+  86:  ABORT ;
+  87:   ;
+  88:  !************************ ;
+  89:  LBL[100] ;
+  90:  !Robot at HOME ;
+  91:  UFRAME_NUM=R[135:Nilp Uframe] ;
+  92:  UTOOL_NUM=R[136:Base Utool] ;
+  93:J PR[1:Robot Home] 20% CNT100    ;
+  94:  R[104:Curr Perch PR#]=1    ;
+  95:  !Turn on CLEAR Signals ;
+  96:  CALL ALL_CLR    ;
+/POS
+/END

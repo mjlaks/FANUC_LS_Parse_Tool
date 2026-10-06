@@ -1,0 +1,32 @@
+/PROG  OPERMENU_PSG	  Macro
+/ATTR
+OWNER		= MNEDITOR;
+COMMENT		= "Entry Menu Macro";
+PROG_SIZE	= 304;
+CREATE		= DATE 07-06-01  TIME 13:55:24;
+MODIFIED	= DATE 15-02-19  TIME 17:03:14;
+FILE_NAME	= ;
+VERSION		= 0;
+LINE_COUNT	= 8;
+MEMORY_SIZE	= 784;
+PROTECT		= READ_WRITE;
+TCD:  STACK_SIZE	= 0,
+      TASK_PRIORITY	= 50,
+      TIME_SLICE	= 0,
+      BUSY_LAMP_OFF	= 0,
+      ABORT_REQUEST	= 0,
+      PAUSE_REQUEST	= 0;
+DEFAULT_GROUP	= *,*,*,*,*;
+CONTROL_CODE	= 00000000 00000000;
+/APPL
+/MN
+   1:  ! Op. Entry Menu ;
+   2:  ! AR[1] menu no ;
+   3:   VENDOR Module-1-07 ;
+   4:  LBL[1] ;
+   5:  R[116]=0    ;
+   6:  CALL MSGOPERM(AR[1]) ;
+   7:  WAIT R[116]>0    ;
+   8:  IF R[116]>1,JMP LBL[1] ;
+/POS
+/END

@@ -1,0 +1,36 @@
+/PROG  MV_LINR	  Macro
+/ATTR
+OWNER		= MNEDITOR;
+COMMENT		= "Move Linear HOME";
+PROG_SIZE	= 329;
+CREATE		= DATE 22-03-13  TIME 11:56:56;
+MODIFIED	= DATE 22-03-13  TIME 11:56:56;
+FILE_NAME	= ;
+VERSION		= 0;
+LINE_COUNT	= 8;
+MEMORY_SIZE	= 801;
+PROTECT		= READ_WRITE;
+TCD:  STACK_SIZE	= 0,
+      TASK_PRIORITY	= 50,
+      TIME_SLICE	= 0,
+      BUSY_LAMP_OFF	= 0,
+      ABORT_REQUEST	= 0,
+      PAUSE_REQUEST	= 0;
+DEFAULT_GROUP	= 1,*,*,*,*;
+CONTROL_CODE	= 00000000 00000000;
+/APPL
+/APPL
+
+AUTO_SINGULARITY_HEADER;
+  ENABLE_SINGULARITY_AVOIDANCE   : TRUE;
+/MN
+   1:  !Set correct tools and frames ;
+   2:  UFRAME_NUM=R[135:Nilp Uframe] ;
+   3:  UTOOL_NUM=R[136:Base Utool] ;
+   4:   ;
+   5:  !Move to perch until F1 released ;
+   6:  SKIP CONDITION R[108]=0    ;
+   7:L PR[64:To Perch PR] 500mm/sec FINE Skip,LBL[1]    ;
+   8:  LBL[1] ;
+/POS
+/END
