@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { check, Diagnostic, mergeConfig, WorkspaceIndex } from '@lscheck/core';
-import { buildWorkspaceIndex, configErrorDiagnostic, loadConfigFor } from '@lscheck/core/dist/node';
+import { buildWorkspaceIndexAsync, configErrorDiagnostic, loadConfigFor } from '@lscheck/core/dist/node';
 
 // Language ID registered by the TP editor extension; this extension adds diagnostics only.
 const LANGUAGE_ID = 'fanuctp_ls';
@@ -23,16 +23,26 @@ export function activate(context: vscode.ExtensionContext) {
     return doc.uri.scheme === 'file' ? loadConfigFor(path.dirname(doc.uri.fsPath), base) : { config: base };
   };
 
-  // CALL/RUN targets: index of programs under the config folder (or the file's folder), refreshed every few seconds
-  const indexes = new Map<string, { at: number; index: WorkspaceIndex }>();
+  // CALL/RUN targets: index of programs under the config folder (or the file's folder). Built asynchronously,
+  // reused until a program file is created or deleted (file watcher below), never built inside run().
+  const indexes = new Map<string, WorkspaceIndex>();
+  const building = new Map<string, Promise<void>>();
   const workspaceFor = (doc: vscode.TextDocument, dir?: string): WorkspaceIndex | undefined => {
     if (doc.uri.scheme !== 'file') return undefined;
     const root = dir ?? path.dirname(doc.uri.fsPath);
     const hit = indexes.get(root);
-    if (hit && Date.now() - hit.at < 5000) return hit.index;
-    const index = buildWorkspaceIndex(root);
-    indexes.set(root, { at: Date.now(), index });
-    return index;
+    if (hit) return hit;
+    if (!building.has(root)) {
+      building.set(
+        root,
+        buildWorkspaceIndexAsync(root).then((index) => {
+          indexes.set(root, index);
+          building.delete(root);
+          vscode.workspace.textDocuments.forEach(schedule); // re-check once the index is ready
+        }),
+      );
+    }
+    return undefined; // no CALL/RUN checks until the first scan finishes
   };
 
   const run = (doc: vscode.TextDocument) => {
@@ -57,24 +67,41 @@ export function activate(context: vscode.ExtensionContext) {
     const key = doc.uri.toString();
     clearTimeout(timers.get(key));
     const delay = vscode.workspace.getConfiguration('lscheck', doc.uri).get<number>('debounceMs', 400);
-    timers.set(key, setTimeout(() => run(doc), delay));
+    timers.set(
+      key,
+      setTimeout(() => {
+        timers.delete(key);
+        run(doc);
+      }, delay),
+    );
+  };
+
+  // A program file appearing or disappearing changes CALL/RUN results in every open document
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{[lL][sS],[tT][pP],[kK][lL],[pP][cC]}');
+  const invalidate = () => {
+    indexes.clear();
+    vscode.workspace.textDocuments.forEach(schedule);
   };
 
   context.subscriptions.push(
     collection,
-    vscode.workspace.onDidOpenTextDocument(run),
+    vscode.workspace.onDidOpenTextDocument(schedule),
     vscode.workspace.onDidChangeTextDocument((e) => schedule(e.document)),
     vscode.window.onDidChangeTextEditorSelection((e) => schedule(e.textEditor.document)),
     vscode.workspace.onDidCloseTextDocument((d) => {
       clearTimeout(timers.get(d.uri.toString()));
+      timers.delete(d.uri.toString());
       collection.delete(d.uri);
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('lscheck')) vscode.workspace.textDocuments.forEach(run);
+      if (e.affectsConfiguration('lscheck')) vscode.workspace.textDocuments.forEach(schedule);
     }),
+    watcher,
+    watcher.onDidCreate(invalidate),
+    watcher.onDidDelete(invalidate),
     { dispose: () => timers.forEach(clearTimeout) },
   );
-  vscode.workspace.textDocuments.forEach(run);
+  vscode.workspace.textDocuments.forEach(schedule);
 }
 
 export function deactivate() {}

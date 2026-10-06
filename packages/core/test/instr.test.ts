@@ -41,10 +41,13 @@ test('valid conditions and control flow are clean', () => {
 });
 
 test('unknown instructions and typos', () => {
-  assert.deepEqual(errs('CALLL FOO'), ['unknown-instruction']);
-  assert.deepEqual(errs('JUMP LBL[1]'), ['unknown-instruction']);
-  assert.deepEqual(errs('ENDIFF'), ['unknown-instruction']);
+  // near-misses of a keyword are warnings (they may be shop macros); text that cannot be a macro is an error
+  for (const bad of ['CALLL FOO', 'ENDIFF', 'Waits Done', 'Run2']) {
+    assert.deepEqual(errs(bad), [], bad);
+    assert.deepEqual(codes(body(bad), 'warning'), ['unknown-instruction'], bad);
+  }
   assert.deepEqual(errs('1234'), ['unknown-instruction']);
+  assert.deepEqual(errs('JUMP LBL[1]'), ['unknown-instruction']); // brackets: cannot be a macro name
   // macro-like names that are not near any keyword are only a hint, and can be listed in config
   const src = body('Program Status(5)');
   assert.deepEqual(codes(src), []);
@@ -96,8 +99,8 @@ test('IF / ELSE / ENDIF / FOR balancing', () => {
   assert.deepEqual(errs('ENDFOR'), ['unbalanced-block']);
   assert.deepEqual(errs('FOR R[1]=1 TO 3', 'IF R[2]=1 THEN', 'ENDFOR', 'ENDIF').length, 2);
   assert.deepEqual(errs('IF R[1]=1', 'R[2]=1'), ['expected-then']);
-  assert.deepEqual(errs('FOR R[1]=1 3'), ['expected-token']);
-  assert.deepEqual(errs('FOR DO[1]=1 TO 3'), ['expected-token']);
+  assert.deepEqual(errs('FOR R[1]=1 3', 'ENDFOR'), ['expected-token']);
+  assert.deepEqual(errs('FOR DO[1]=1 TO 3', 'ENDFOR'), ['expected-token']);
   assert.deepEqual(errs('=1,JMP LBL[1]', 'LBL[1]'), ['unbalanced-block']);
   assert.deepEqual(errs('IF R[1]=1,IF R[2]=1,JMP LBL[1]', 'LBL[1]'), ['bad-inline-action']);
   assert.deepEqual(errs('SELECT R[1]=1'), ['expected-token']);
@@ -158,9 +161,9 @@ test('VOFFSET warns when the VR was not populated by an earlier GET_OFFSET', () 
   assert.deepEqual(codes(populated, 'warning').filter((c) => c === 'vr-not-populated'), []);
   const wrongVr = wrap(`   1:VISION GET_OFFSET 'P' VR[2] JMP LBL[9] ;\n${mv}\n   3:LBL[9] ;`, P1);
   assert.deepEqual(codes(wrongVr, 'warning').filter((c) => c === 'vr-not-populated'), ['vr-not-populated']);
-  // a CALL earlier may populate it, so no warning
+  // a CALLed program may populate it, but that is not knowable here, so the warning stays (and can be turned off)
   const called = wrap(`   1:CALL VISION_OFFSET ;\n${mv}`, P1);
-  assert.deepEqual(codes(called, 'warning').filter((c) => c === 'vr-not-populated'), []);
+  assert.deepEqual(codes(called, 'warning').filter((c) => c === 'vr-not-populated'), ['vr-not-populated']);
 });
 
 test('motion options: ranges, targets and trigger actions', () => {
@@ -212,4 +215,43 @@ test('synthetic iRVision fixture parses clean', async () => {
   const path = await import('path');
   const src = fs.readFileSync(path.resolve(__dirname, '../../../test-fixtures/IRVISION_SYNTH.LS'), 'utf8');
   assert.deepEqual(check(src).filter((d) => d.severity !== 'hint').map((d) => `${d.line + 1}:${d.code}`), []);
+});
+
+test('string register functions', () => {
+  assert.deepEqual(errs('R[1]=STRLEN SR[2]', 'SR[1]=SUBSTR SR[2],1,3', 'R[1]=FINDSTR SR[1],SR[2]', "R[1]=FINDSTR SR[1],'ab'"), []);
+  assert.deepEqual(errs('SR[1]=SUBSTR SR[2],1'), ['expected-token']);
+  assert.deepEqual(errs('R[1]=STRLEN'), ['expected-operand']);
+});
+
+test('indirect CALL/RUN through a register is not looked up', () => {
+  const src = body('CALL SR[1]', 'RUN SR[2]', 'CALL R[3]');
+  const ws = { workspace: { programs: new Set<string>() } };
+  assert.deepEqual(check(src, mergeConfig(), ws).filter((d) => d.severity !== 'hint' && d.code !== 'missing-attr' && d.code !== 'unused-position' && d.code !== 'motion-before-frame'), []);
+  assert.deepEqual(errs('CALL SR[0]'), ['index-range']);
+});
+
+test('a truncated workspace scan is one warning and skips CALL/RUN checks', () => {
+  const src = body('CALL NOPE', 'CALL NOPE2');
+  const d = check(src, mergeConfig(), { workspace: { programs: new Set(), truncated: true } });
+  assert.deepEqual(d.filter((x) => x.code === 'workspace-truncated').length, 1);
+  assert.deepEqual(d.filter((x) => x.code === 'unknown-program'), []);
+});
+
+test('block errors do not cascade', () => {
+  // mismatched ENDIF: one error, and the FOR is consumed so there is no extra "no matching ENDFOR"
+  assert.deepEqual(errs('FOR R[1]=1 TO 3', 'ENDIF'), ['unbalanced-block']);
+  // IF with a bad condition still opens its block, so its ENDIF matches
+  assert.deepEqual(errs('IF R[1]=+ THEN', 'ENDIF'), ['expected-operand']);
+  assert.deepEqual(errs('FOR R[1]=1 TO', 'ENDFOR'), ['expected-operand']);
+});
+
+test('SELECT cases end at the first unrelated statement', () => {
+  assert.deepEqual(errs('SELECT R[1]=1,JMP LBL[1]', '=2,JMP LBL[1]', '! note', 'ELSE,JMP LBL[1]', 'LBL[1]'), []);
+  assert.deepEqual(errs('SELECT R[1]=1,JMP LBL[1]', 'R[2]=1', '=2,JMP LBL[1]', 'LBL[1]'), ['unbalanced-block']);
+});
+
+test('block diagnostics stay inside the line', () => {
+  const d = check(body('ENDIF'), mergeConfig()).find((x) => x.code === 'unbalanced-block')!;
+  const line = body('ENDIF').split('\n')[d.line];
+  assert.ok(d.endColumn <= line.length);
 });

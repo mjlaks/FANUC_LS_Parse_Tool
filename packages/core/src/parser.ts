@@ -190,9 +190,9 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
         jumpRefs.push({ n, line: r.line, col: r.col, end: r.end });
       }
       for (const [n, a, b] of mrep.vrUses) {
-        if (!vrPopulated.has(n) && !calledBefore) {
+        if (!vrPopulated.has(n)) {
           const r = range(a + base, b + base);
-          add('warning', 'vr-not-populated', r.line, r.col, r.end, `VR[${n}] is used by VOFFSET before any VISION GET_OFFSET fills it in this program`);
+          add('warning', 'vr-not-populated', r.line, r.col, r.end, `VR[${n}] is used by VOFFSET but no VISION GET_OFFSET earlier in this program fills it (a CALLed program may; disable vr-not-populated if so)`);
         }
       }
       for (const [a, b] of mrep.actions) {
@@ -213,9 +213,15 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
 
     // ---- state tracking: blocks, style lints ----------------------------------------------------
     const bad = (code: string, msg: string, incomplete = false) => {
-      add('error', code, stmtStart.line, stmtStart.col, Math.min(stmtStart.end, stmtStart.col + 1) + 5, msg, incomplete, span);
+      const lineEnd = lines[stmtStart.line].trimEnd().length;
+      const word = /^[A-Za-z]+/.exec(body)?.[0].length ?? 1;
+      add('error', code, stmtStart.line, stmtStart.col, Math.min(lineEnd, stmtStart.col + word), msg, incomplete, span);
     };
-    if (!rep.error) {
+    // A block opener with a parse error is still pushed, so only the root cause is reported
+    if (rep.error && /^IF\b/i.test(body) && /\bTHEN\s*$/i.test(body)) kind = 'if-block';
+    else if (rep.error && /^FOR\b/i.test(body)) kind = 'for';
+    if (!rep.error || kind === 'if-block' || kind === 'for') {
+      if (kind !== 'case' && kind !== 'select-else' && kind !== 'comment' && kind !== 'empty' && kind !== 'label' && kind !== 'select') selectOpen = false;
       switch (kind) {
         case 'if-block':
           blocks.push({ kind: 'IF', line: stmtStart.line, col: stmtStart.col, end: stmtStart.end, seenElse: false });
@@ -233,13 +239,13 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
         case 'endif': {
           const top = blocks[blocks.length - 1];
           if (!top || top.kind !== 'IF') bad('unbalanced-block', top ? `ENDIF found while a ${top.kind} block is open (missing ENDFOR?)` : 'ENDIF without a matching IF ... THEN');
-          else blocks.pop();
+          blocks.pop();
           break;
         }
         case 'endfor': {
           const top = blocks[blocks.length - 1];
           if (!top || top.kind !== 'FOR') bad('unbalanced-block', top ? `ENDFOR found while an ${top.kind} block is open (missing ENDIF?)` : 'ENDFOR without a matching FOR');
-          else blocks.pop();
+          blocks.pop();
           break;
         }
         case 'select':
@@ -434,7 +440,9 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
   for (const l of labelDefs) if (!jumped.has(l.n)) add('hint', 'unused-label', l.line, l.col, l.end, `LBL[${l.n}] is never jumped to`);
 
   // CALL/RUN targets, only when a workspace index is available
-  if (workspace) {
+  if (workspace?.truncated) {
+    add('warning', 'workspace-truncated', 0, 0, 1, 'The workspace folder is too large to scan completely; CALL/RUN targets are not checked. Put .lscheckrc.json in a smaller folder.');
+  } else if (workspace) {
     const self = result.programName?.toUpperCase();
     const external = new Set(config.externalPrograms.map((n) => n.toUpperCase()));
     for (const c of callRefs) {
