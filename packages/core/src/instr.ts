@@ -65,6 +65,8 @@ const CONSTANTS = new Set(['ON', 'OFF', 'START', 'STOP', 'RESET', 'JPOS', 'LPOS'
 /** VR[n].FIELD names; unverified against the iRVision manual, unknown fields only warn. */
 const VR_FIELDS = new Set(['MODELID', 'FOUND_POS', 'OFFSET', 'MEASURE', 'ENCODER', 'ENC_CNT', 'FOUND_TIME', 'MODEL', 'SCALE', 'CONFIDENCE', 'MEASURE_POS', 'RESULT']);
 const VISION_KEYWORDS = ['RUN_FIND', 'GET_OFFSET', 'GET_NFOUND', 'SET_REFERENCE', 'OVERRIDE', 'CAMERA_CALIB'];
+/** String register functions and their argument counts. */
+const STRING_FUNCS: Record<string, number> = { STRLEN: 1, SUBSTR: 3, FINDSTR: 2 };
 const BLOCK_ONLY = new Set(['if-block', 'else', 'endif', 'for', 'endfor', 'select', 'case', 'select-else', 'label', 'end']);
 
 function lev(a: string, b: string): number {
@@ -141,10 +143,11 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
   /** Reads NAME[...]; `i` must be at the name. Validates the index and returns what it found. */
   interface Ref { name: string; start: number; end: number; index?: number }
   const ref = (): Ref => {
-    const m = /^[A-Za-z_]+/.exec(rest())!;
+    const mm = /^([A-Za-z_]+)([ \t]*)\[/.exec(rest())!;
+    const m = [mm[1]];
     const name = m[0].toUpperCase();
     const start = i;
-    i += m[0].length + 1; // name and '['
+    i += mm[0].length; // name, gap and '['
     const cs = i;
     let depth = 1;
     while (i < s.length && depth > 0) {
@@ -242,7 +245,7 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
     const w = word();
     if (!w) return fail(i, i + 1, 'expected-operand', `Unexpected '${c}'; expected a value or register`);
     const up = w.toUpperCase();
-    if (s[i + w.length] === '[') {
+    if (/^[ \t]*\[/.test(s.slice(i + w.length))) {
       if (!REF_NAMES.has(up)) return fail(i, i + w.length, 'unknown-register', `Unknown register type '${w}'`);
       const r = ref();
       if (r.name === 'P' && r.index !== undefined) rep.posRefs.push([r.index, r.start, r.end]);
@@ -259,6 +262,18 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
     }
     if (CONSTANTS.has(up)) {
       i += w.length;
+      return;
+    }
+    const arity = STRING_FUNCS[up];
+    if (arity) {
+      // string register functions: STRLEN SR[1] / SUBSTR SR[1],2,3 / FINDSTR SR[1],SR[2]
+      i += w.length;
+      for (let k = 0; k < arity; k++) {
+        if (k > 0) expect(',', `',' (${up} takes ${arity} arguments)`);
+        ws();
+        if (s[i] === "'") readString();
+        else unary();
+      }
       return;
     }
     fail(i, i + w.length, 'unknown-operand', `Unknown value '${w}'`);
@@ -293,7 +308,7 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
 
   const literalLabel = (): void => {
     ws();
-    if (!/^LBL\[/i.test(rest())) fail(i, i + 1, 'expected-token', 'Expected LBL[n]');
+    if (!/^LBL[ \t]*\[/i.test(rest())) fail(i, i + 1, 'expected-token', 'Expected LBL[n]');
     const r = ref();
     if (r.index === undefined) {
       // JMP LBL[R[n]] is legal; only literal targets are cross-checked
@@ -305,6 +320,11 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
 
   const progName = (what: string): Span => {
     ws();
+    // indirect target through a register, e.g. CALL SR[1]; resolved at run time, so not looked up
+    if (/^(?:SR|R|AR)\[/i.test(rest())) {
+      const r = ref();
+      return { start: r.start, end: r.end };
+    }
     const m = /^[A-Za-z_][A-Za-z_0-9]*/.exec(rest());
     if (!m) return fail(i, i + 1, 'expected-program-name', `${what} needs a program name`);
     const sp: Span = { name: m[0].toUpperCase(), start: i, end: i + m[0].length };
@@ -449,9 +469,9 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
         else {
           const n = number();
           if (n === null) fail(at, at + 1, 'expected-operand', 'PULSE needs a width such as 0.5sec');
-          const um = /^(msec|sec)/i.exec(rest());
+          const um = /^([ \t]*)(msec|sec)/i.exec(rest());
           if (um) i += um[0].length;
-          const w = Number(n) * (um && um[0].toLowerCase() === 'msec' ? 0.001 : 1);
+          const w = Number(n) * (um && um[2].toLowerCase() === 'msec' ? 0.001 : 1);
           if (w < 0.1 || w > 25.5) warn(at, i, 'pulse-width', 'PULSE width should be 0.1..25.5 sec');
         }
       }
@@ -503,10 +523,10 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
       return fail(i, i + 1, 'unknown-instruction', `Unexpected '${c}' at start of statement`);
     }
     const up = w.toUpperCase();
-    const next = s[i + w.length];
+    const bracketNext = /^[ \t]*\[/.test(s.slice(i + w.length));
 
     // names followed by '[' are register-like
-    if (next === '[') {
+    if (bracketNext) {
       if (up === 'LBL') {
         const r = ref();
         if (r.index === undefined) fail(r.start, r.end, 'bad-index', 'LBL needs a literal number: LBL[n] or LBL[n:comment]');
@@ -542,7 +562,7 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
     if (KW('CALL') || KW('RUN')) {
       i += w.length;
       const sp = progName(up);
-      rep.calls.push({ ...sp, kind: up as 'CALL' | 'RUN' });
+      if (sp.name) rep.calls.push({ ...sp, kind: up as 'CALL' | 'RUN' });
       if (up === 'CALL') callArgs();
       endOfStatement();
       return set(up === 'CALL' ? 'call' : 'run');
@@ -696,8 +716,9 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
         return set('macro');
       }
       const close = first.length >= 3 ? KEYWORDS.find((k) => k !== first.toUpperCase() && lev(first.toUpperCase(), k) <= (first.length >= 8 ? 2 : 1)) : undefined;
-      if (close) fail(i, i + first.length, 'unknown-instruction', `Unknown instruction '${first}'. Did you mean ${close}?`);
-      rep.notes.push(new StmtError(i, i + first.length, 'unknown-instruction', `'${first}' is not a recognized instruction; if it is a macro, list it under "macros" in .lscheckrc.json`, 'hint'));
+      // shops name their own macros, so even a near-miss of a keyword is only a warning
+      if (close) rep.notes.push(new StmtError(i, i + first.length, 'unknown-instruction', `Unknown instruction '${first}'. Did you mean ${close}? (If it is a macro, list it under "macros" in .lscheckrc.json)`, 'warning'));
+      else rep.notes.push(new StmtError(i, i + first.length, 'unknown-instruction', `'${first}' is not a recognized instruction; if it is a macro, list it under "macros" in .lscheckrc.json`, 'hint'));
       i = s.length;
       return set('macro');
     }

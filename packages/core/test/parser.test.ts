@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { check, mergeConfig } from '../src';
+import * as core from '../src';
+const { mergeConfig } = core;
+// Most tests use loosely formatted lines; spacing rules are exercised in spacing.test.ts
+const check: typeof core.check = (src, cfg = mergeConfig(), opts) => core.check(src, { ...cfg, rules: { 'bad-spacing': 'off', ...cfg.rules } }, opts);
+
 
 const wrap = (mn: string, pos = '') => `/PROG  T
 /ATTR
@@ -139,10 +143,10 @@ test('termination must be whole number with word boundary', () => {
   assert.deepEqual(errs(wrap('   1:J P[1] 100% CNT5x ;', P(1))), ['cnt-range']);
 });
 
-test('space between speed value and unit warns', () => {
+test('space between speed value and unit is an error', () => {
   const d = check(wrap('   1:L P[1] 50 mm/sec FINE ;', P(1))).filter((x) => x.code === 'speed-spacing');
   assert.equal(d.length, 1);
-  assert.equal(d[0].severity, 'warning');
+  assert.equal(d[0].severity, 'error');
 });
 
 test('UTF-8 BOM is ignored', () => {

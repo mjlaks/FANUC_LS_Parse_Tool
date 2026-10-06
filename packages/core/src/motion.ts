@@ -55,10 +55,11 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
 
   interface Ref { name: string; content: string; start: number; end: number; index?: number }
   const readRef = (): Ref | null => {
-    const m = /^[A-Za-z]+/.exec(s.slice(i));
-    if (!m || s[i + m[0].length] !== '[') return null;
+    const mm = /^([A-Za-z]+)([ \t]*)\[/.exec(s.slice(i));
+    if (!mm) return null;
+    const m = [mm[1]];
     const start = i;
-    i += m[0].length + 1;
+    i += mm[0].length;
     const cs = i;
     let depth = 1;
     while (i < s.length && depth > 0) {
@@ -72,6 +73,7 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
     if (depth > 0) fail(start, i, 'unbalanced-bracket', `Missing ']' for ${m[0]}[`);
     const content = s.slice(cs, i - 1);
     const im = /^\s*(?:GP\d+:)?(\d+)/.exec(content);
+    if (im && !/^\s*([:,]|$)/.test(content.slice(im[0].length))) fail(start, i, 'bad-index', `Unexpected '${content.slice(im[0].length).split(':')[0].trim()}' after the index in ${m[0]}[...]`);
     return { name: m[0].toUpperCase(), content, start, end: i, index: im ? Number(im[1]) : undefined };
   };
 
@@ -118,8 +120,8 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
         let k = i;
         while (s[k] === ' ' || s[k] === '\t') k++;
         if (UNIT_RE.test(s.slice(k))) {
-          // controller output never has a gap; unconfirmed whether the loader accepts one
-          rep.notes.push(new StmtError(i, k, 'speed-spacing', 'Space between speed value and unit; the controller writes them together (e.g. 100mm/sec)', 'warning'));
+          // controller output never has a gap, and gaps fail on the controller (per the project owner)
+          rep.notes.push(new StmtError(i, k, 'speed-spacing', 'Space between speed value and unit; the controller writes them together (e.g. 100mm/sec)'));
           i = k;
         }
       }

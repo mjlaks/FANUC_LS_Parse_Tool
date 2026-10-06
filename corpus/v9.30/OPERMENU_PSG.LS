@@ -22,7 +22,7 @@ CONTROL_CODE	= 00000000 00000000;
 /MN
    1:  ! Op. Entry Menu ;
    2:  ! AR[1] menu no ;
-   3:   VENDOR Module-1-07 ;
+   3:  VENDOR Module-1-07    ;
    4:  LBL[1] ;
    5:  R[116]=0    ;
    6:  CALL MSGOPERM(AR[1]) ;

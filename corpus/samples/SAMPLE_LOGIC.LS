@@ -21,7 +21,7 @@ CONTROL_CODE	= 00000000 00000000;
 /MN
    1:  !Wait for part ;
    2:  IF (!DI[10:Part Present]),JMP LBL[5] ;
-   3:  WAIT .50(sec) ;
+   3:  WAIT    .50(sec) ;
    4:  LBL[5] ;
    5:  CALL HOME    ;
 /POS

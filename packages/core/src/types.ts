@@ -40,6 +40,8 @@ export interface Limits {
 /** Program names (upper case, no extension) known to exist in the workspace; used for CALL/RUN target checks. */
 export interface WorkspaceIndex {
   programs: ReadonlySet<string>;
+  /** True when the folder scan hit its size cap, so the set may be incomplete and CALL/RUN targets are not checked. */
+  truncated?: boolean;
 }
 
 export interface CheckOptions {

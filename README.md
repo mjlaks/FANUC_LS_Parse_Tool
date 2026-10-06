@@ -34,7 +34,7 @@ Options: `--format json`, `--firmware V9.40`, `--max-warnings N`, `--no-workspac
 ## Notes
 
 - `firmware` / `--firmware` is **reserved**: it is carried in the config but no rule is gated on it yet (V9.30 and V9.40 share one dialect in Milestone 1).
-- A space between a speed value and its unit (`50 mm/sec`) produces a `speed-spacing` warning: the controller always writes them together, and it is unconfirmed whether the loader accepts a gap. Verify with maketp.
+- A space between a speed value and its unit (`50 mm/sec`) is a `speed-spacing` error (see Spacing above).
 - A malformed `.lscheckrc.json` yields a `config-error` diagnostic and falls back to defaults.
 
 ## Coverage
@@ -49,11 +49,33 @@ Milestones 2 and 3
 - **Registers and I/O**: `R`, `PR` (including `PR[i,j]`), `SR`, `F`, `M`, `DI/DO`, `RI/RO`, `GI/GO`, `AI/AO`, `UI/UO`, `SI/SO`, `AR`, `TIMER`, `$sysvar`, indirect indices (`R[AR[2]]`), `PULSE`, assigning to read-only inputs (`not-assignable`), malformed expressions, index limits per type (`index-range`, configurable under `limits`)
 - **Flow**: `IF` (inline and `THEN`), `ELSE`, `ENDIF`, `FOR`/`ENDFOR`, `SELECT` cases, `WAIT` (time, condition, `TIMEOUT,LBL`), `JMP`, `LBL`, `CALL` (with arguments), `RUN`, `MONITOR`, `WHEN`, `PAUSE`, `ABORT`, `END`; block balancing (`unbalanced-block`)
 - **Labels**: duplicate `LBL[n]` and jumps to undefined labels (also `Skip,LBL`, `TIMEOUT,LBL`, vision `JMP LBL`); never-jumped labels are hints
-- **CALL/RUN targets**: warns (`unknown-program`) when the program is not under the workspace root (the folder holding `.lscheckrc.json`, else the file's folder; `.LS`, `.TP`, `.KL`, `.PC` files). List controller-only programs under `externalPrograms`. `--no-workspace` turns the lookup off.
-- **iRVision**: `VISION RUN_FIND`, `GET_OFFSET` (VR + `JMP LBL`), `GET_NFOUND`, `SET_REFERENCE`, `OVERRIDE`, `CAMERA_CALIB`; quoted process names; `VR[n].FIELD`; `vr-not-populated` warning when `VOFFSET,VR[n]` has no earlier `GET_OFFSET` for that VR (skipped after any `CALL`/`RUN`, which may fill it). **Only `CAMERA_CALIB` appears in the real corpus; the rest of the VISION syntax comes from the project brief and is unverified against the V9.x manual**, so deviations there are warnings.
+- **CALL/RUN targets**: warns (`unknown-program`) when the program is not under the workspace root (the folder holding `.lscheckrc.json`, else the file's folder; `.LS`, `.TP`, `.KL`, `.PC` files; folders over a size cap give one `workspace-truncated` warning and skip the check; `CALL SR[n]` indirect targets are not looked up). List controller-only programs under `externalPrograms`. `--no-workspace` turns the lookup off.
+- **iRVision**: `VISION RUN_FIND`, `GET_OFFSET` (VR + `JMP LBL`), `GET_NFOUND`, `SET_REFERENCE`, `OVERRIDE`, `CAMERA_CALIB`; quoted process names; `VR[n].FIELD`; `vr-not-populated` warning when `VOFFSET,VR[n]` has no earlier `GET_OFFSET` for that VR (a CALLed program may fill it; turn the rule off if that is how you work). **Only `CAMERA_CALIB` appears in the real corpus; the rest of the VISION syntax comes from the project brief and is unverified against the V9.x manual**, so deviations there are warnings.
 - **Motion options**: `Offset`, `Tool_Offset`, `VOFFSET`, `Skip`, `TB`/`TA`/`DB` (their actions are checked as instructions), `INC`, `ACC` (0..500), `PTH`, `Wjnt`, `RTCP`, `COORD`, `EV`, `AP_LD`, `RT_LD`, `PSPD`, ...; PR/VR indices checked
 - **Ranges**: `OVERRIDE` 1..100, `UFRAME_NUM`, `UTOOL_NUM`, labels 1..32766, `PULSE` width
-- **Unknown instructions**: a typo of a real instruction (`CALLL`, `JUMP`) is an `unknown-instruction` error. TP macros are named by the shop, so any other unrecognized name is only a hint; list known ones under `macros` to silence it.
+- **Unknown instructions**: TP macros are named by the shop, so an unrecognized name is a hint, and a near-miss of a real keyword (`CALLL`) is a warning with a suggestion; list known macros under `macros` to silence both. Only text that cannot be a macro name is an error.
+- **Spacing** (`bad-spacing` error): hand-typed spacing fails on the controller, so only the spacing the controller itself writes (as seen in the corpus) is accepted. Text inside comments, `MESSAGE[...]` and quoted strings is free. Turn off or downgrade with `"bad-spacing"` in `rules`; errors on the line being edited are hidden until you move away. The rules:
+  - Line number right-aligned in 4 columns, no space before the colon.
+  - Spaces after the colon: motion 0, empty line 3, `SELECT` case lines and `ELSE,<action>` 9, everything else (including comments and disabled `//` lines) 2.
+  - Inside a statement: one space only between words and values (`JMP LBL[1]`, `J P[1] 50% CNT100`, `IF (...) THEN`, `AND`/`OR`). Never around `=` `,` `+ - * /` `< >`, before `[`, inside `[ ]`, in `CNT 1`, `25 mm/sec` or `1.0 sec`. `WAIT <time>` is padded so `WAIT` plus gap plus the number is 7 characters (`WAIT    .50(sec)`, `WAIT   2.00(sec)`).
+  - Spaces before the closing `;`, per instruction form (counts from the corpus):
+
+    | Form | Spaces before `;` |
+    | --- | --- |
+    | Motion (`J`/`L`/`C`/`A`) | 4 |
+    | `!` comment, `JMP`, `LBL`, `IF ... THEN`, `ELSE`, `ENDIF`, `SELECT`, `=n,` cases, `ELSE,<action>`, `END`, `PAUSE`, `ABORT`, `VISION` | 1 |
+    | `IF cond,<action>` (not a motion action) | 1 |
+    | `CALL prog(args)` | 1 |
+    | `CALL prog` (no arguments) | 4 |
+    | Macro-style line with arguments (`Program Status(5)`) | 1 |
+    | Macro-style line without arguments (`Clear User Page`) | 4 |
+    | `WAIT <condition>` | 4 |
+    | `WAIT <time>(sec)`, `WAIT <condition> TIMEOUT,LBL[n]` | 1 |
+    | `R`/`PR`/`SR` assignment | 4 |
+    | `R`/`PR`/`SR` assignment from a system variable, or with parenthesised arithmetic such as `R[1]=((R[2]-1)*R[3])` (a negative literal `(-3)` is not arithmetic) | 1 |
+    | `DO`/`RO`/`GO`/`F` outputs, `UFRAME_NUM`, `UTOOL_NUM`, `OVERRIDE`, `$sysvar=`, `TIMER`, `PAYLOAD`, `UALM`, `MESSAGE` | 1 |
+    | `//` disabled line | 1 or 4 (unverified: the corpus shows both) |
+    | Instructions the corpus never shows (`FOR`, `ENDFOR`, `MONITOR`, ...) | 1 or 4 (unverified) |
 - **Style lints** (warnings; turn off with `rules`): `io-after-cnt` (output instruction directly after a CNT/CR move), `motion-before-frame` (first motion before `UFRAME_NUM` and `UTOOL_NUM` are set; skipped after a `CALL`/`RUN`)
 
 Not yet covered: type checks between operands (`R[1]=ON`), mixed AND/OR precedence rules, `/APPL` contents, `/POS` coordinate fields, KAREL calls with typed arguments.
