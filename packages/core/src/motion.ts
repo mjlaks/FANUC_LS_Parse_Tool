@@ -18,6 +18,14 @@ export interface MotionReport {
   notes: StmtError[];
   /** Numeric P[n] references: [index, start, end] */
   positions: Array<[number, number, number]>;
+  /** LBL targets of Skip,LBL[n]: [index, start, end] */
+  jumps: Array<[number, number, number]>;
+  /** VR[n] used by VOFFSET: [index, start, end] */
+  vrUses: Array<[number, number, number]>;
+  /** Offsets of TB/TA/DB action text (run to end of statement), to be checked as instructions */
+  actions: Array<[number, number]>;
+  /** True when the move ends in CNT/CR, so following instructions run before the robot arrives */
+  blend: boolean;
   /** First fatal error, if any */
   error?: StmtError;
 }
@@ -27,7 +35,7 @@ const CART_UNITS = ['mm/sec', 'cm/min', 'inch/min', 'deg/sec', 'sec', 'msec'];
 const UNIT_RE = /^(mm\/sec|cm\/min|inch\/min|deg\/sec|msec|sec|%)/i;
 const FLAG_OPTIONS = new Set(['inc', 'wjnt', 'rtcp', 'coord', 'break', 'pth', 'ptp']);
 /** options taking a number (+ optional unit) directly after the keyword */
-const VALUE_OPTIONS = new Set(['acc', 'ev', 'ind.ev']);
+const VALUE_OPTIONS = new Set(['acc', 'ev', 'ind.ev', 'ap_ld', 'rt_ld', 'pspd']);
 /** options taking "<time/dist>,<action...>" where the action runs to end of statement */
 const TRIGGER_OPTIONS = new Set(['tb', 'ta', 'db']);
 
@@ -36,7 +44,7 @@ const TRIGGER_OPTIONS = new Set(['tb', 'ta', 'db']);
  * Stops at the first fatal error, which is reported in `error`.
  */
 export function parseMotion(s: string, cfg: LsConfig): MotionReport {
-  const rep: MotionReport = { notes: [], positions: [] };
+  const rep: MotionReport = { notes: [], positions: [], jumps: [], vrUses: [], actions: [], blend: false };
   let i = 0;
   const ws = () => {
     while (i < s.length && (s[i] === ' ' || s[i] === '\t' || s[i] === '\n')) i++;
@@ -141,6 +149,7 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
     i += m[0].length;
     const word = m[0].toUpperCase();
     if (word === 'FINE') return;
+    rep.blend = true;
     while (s[i] === ' ' || s[i] === '\t') i++;
     if (/^R\[/i.test(s.slice(i))) {
       readRef();
@@ -166,7 +175,12 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
       if (VALUE_OPTIONS.has(name)) {
         while (s[i] === ' ' || s[i] === '\t') i++;
         if (/^R\[/i.test(s.slice(i))) readRef();
-        else if (number() === null) fail(at, i, 'option-arg', `${m[0]} needs a value`);
+        else {
+          const vs = i;
+          const num = number();
+          if (num === null) fail(at, i, 'option-arg', `${m[0]} needs a value`);
+          if (name === 'acc' && Number(num) > 500) fail(vs, i, 'numeric-range', 'ACC must be 0..500');
+        }
         const u = /^(%|sec)/i.exec(s.slice(i));
         if (u) i += u[0].length;
         continue;
@@ -177,8 +191,13 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
         const u = /^(sec|mm|inch)/i.exec(s.slice(i));
         if (u) i += u[0].length;
         if (s[i] !== ',') fail(at, i, 'option-arg', `${m[0]} needs ",<action>" after the value`);
-        i = s.length; // action text runs to the end of the statement
-        return;
+        // action text runs up to the next motion option (or the end of the statement)
+        const from = i + 1;
+        const nxt = /[ \t\n](?:tb|ta|db|acc|inc|wjnt|rtcp|pth|ptp|coord|break|ev|ind\.ev|offset|tool_offset|voffset|skip|ap_ld|rt_ld|pspd)(?![A-Za-z_])/i.exec(s.slice(from));
+        const to = nxt ? from + nxt.index : s.length;
+        rep.actions.push([from, to]);
+        i = to;
+        continue;
       }
       if (name === 'offset' || name === 'tool_offset' || name === 'voffset' || name === 'skip') {
         const want = name === 'voffset' ? 'VR' : name === 'skip' ? 'LBL' : 'PR';
@@ -190,8 +209,11 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
         const a = i;
         const r = readRef();
         if (!r || r.name !== want) fail(a, Math.max(i, a + 1), 'option-arg', `${m[0]} expects ${want}[n]`);
-        if (r!.name === 'VR' && r!.index !== undefined && (r!.index < 1 || r!.index > cfg.limits.vr)) {
-          fail(r!.start, r!.end, 'index-range', `VR[${r!.index}] is outside 1..${cfg.limits.vr}`);
+        if (r!.index !== undefined) {
+          const max = r!.name === 'VR' ? cfg.limits.vr : r!.name === 'PR' ? cfg.limits.pr : undefined;
+          if (max !== undefined && (r!.index < 1 || r!.index > max)) fail(r!.start, r!.end, 'index-range', `${r!.name}[${r!.index}] is outside 1..${max}`);
+          if (r!.name === 'VR') rep.vrUses.push([r!.index, r!.start, r!.end]);
+          if (r!.name === 'LBL') rep.jumps.push([r!.index, r!.start, r!.end]);
         }
         if (name === 'skip' && s[i] === ',') {
           while (i < s.length && s[i] !== ' ' && s[i] !== '\t' && s[i] !== '\n') i++; // ,PR[n]=LPOS

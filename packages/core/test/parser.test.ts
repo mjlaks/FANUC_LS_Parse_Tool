@@ -11,7 +11,7 @@ ${mn}
 ${pos}/END
 `;
 const P = (n: number) => `P[${n}]{\n   GP1:\n\tX = 1 mm\n};\n`;
-const codes = (src: string, opts = {}) => check(src, mergeConfig(), opts).filter((d) => d.severity !== 'hint').map((d) => d.code);
+const codes = (src: string, opts = {}) => check(src, mergeConfig({ rules: { 'motion-before-frame': 'off' } }), opts).filter((d) => d.severity !== 'hint').map((d) => d.code);
 const errs = (src: string) => check(src).filter((d) => d.severity === 'error').map((d) => d.code);
 
 test('valid motion lines produce no errors', () => {
@@ -21,7 +21,8 @@ test('valid motion lines produce no errors', () => {
    3:J PR[1:Home] 50% CNT0 Skip,LBL[1]    ;
    4:C P[1] 100mm/sec CNT20
     :  P[1] 100mm/sec FINE    ;
-   5:L P[1] R[3:spd]mm/sec CR10    ;`,
+   5:L P[1] R[3:spd]mm/sec CR10    ;
+   6:LBL[1] ;`,
     P(1),
   );
   assert.deepEqual(errs(src), []);
@@ -81,7 +82,7 @@ test('rules can be turned off or re-levelled', () => {
 });
 
 test('generic statements: NOT operator and bracket balance', () => {
-  assert.deepEqual(errs(wrap('   1:  IF (!DI[1:x]),JMP LBL[5] ;')), []);
+  assert.deepEqual(errs(wrap('   1:  IF (!DI[1:x]),JMP LBL[5] ;\n   2:  LBL[5] ;')), []);
   assert.deepEqual(errs(wrap('   1:  R[1=2 ;')), ['unbalanced-bracket']);
 });
 
@@ -123,7 +124,7 @@ test('cursor anywhere inside an incomplete span suppresses it', () => {
   const half = wrap('   1:J P[1] 100%', P(1));
   const ln = half.split('\n').findIndex((l) => l.startsWith('   1:'));
   assert.ok(codes(half).includes('missing-semicolon'));
-  assert.deepEqual(codes(half, { cursorLine: ln }).filter((c) => c !== 'missing-attr'), []);
+  assert.deepEqual(codes(half, { cursorLine: ln }).filter((c) => c !== 'missing-attr' && c !== 'motion-before-frame'), []);
 });
 
 test('inline IF with a motion is validated', () => {
