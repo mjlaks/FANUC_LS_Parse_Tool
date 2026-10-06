@@ -1,0 +1,33 @@
+/PROG  LISTMENU_PSG	  Macro
+/ATTR
+OWNER		= MNEDITOR;
+COMMENT		= "LIST MENU MACRO";
+PROG_SIZE	= 328;
+CREATE		= DATE 07-06-01  TIME 13:52:08;
+MODIFIED	= DATE 15-02-19  TIME 17:03:20;
+FILE_NAME	= ;
+VERSION		= 0;
+LINE_COUNT	= 9;
+MEMORY_SIZE	= 804;
+PROTECT		= READ_WRITE;
+TCD:  STACK_SIZE	= 0,
+      TASK_PRIORITY	= 50,
+      TIME_SLICE	= 0,
+      BUSY_LAMP_OFF	= 0,
+      ABORT_REQUEST	= 0,
+      PAUSE_REQUEST	= 0;
+DEFAULT_GROUP	= *,*,*,*,*;
+CONTROL_CODE	= 00000000 00000000;
+/APPL
+/MN
+   1:  ! List Menu ;
+   2:  ! AR[1] menu no ;
+   3:  ! AR[2] answer reg ;
+   4:   VENDOR Module-1-07 ;
+   5:  LBL[1] ;
+   6:  R[116]=0    ;
+   7:  CALL MSGLIST(AR[1],AR[2]) ;
+   8:  WAIT R[116]>0    ;
+   9:  IF R[116]>1,JMP LBL[1] ;
+/POS
+/END

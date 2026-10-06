@@ -1,0 +1,57 @@
+{
+  "name": "ls-check",
+  "displayName": "LS Check",
+  "description": "Live diagnostics for TP .LS programs (companion to the TP editor extension)",
+  "version": "0.1.0",
+  "publisher": "mjlaks",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:fanuctp_ls"
+  ],
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=dist/extension.js",
+    "typecheck": "tsc -p . --noEmit",
+    "package": "npm run build && vsce package --no-dependencies"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "LS Check",
+      "properties": {
+        "lscheck.firmware": {
+          "type": "string",
+          "default": "V9.30",
+          "enum": [
+            "V9.30",
+            "V9.40"
+          ],
+          "description": "Controller firmware dialect."
+        },
+        "lscheck.debounceMs": {
+          "type": "number",
+          "default": 400,
+          "description": "Delay after typing stops before re-checking."
+        },
+        "lscheck.limits": {
+          "type": "object",
+          "default": {},
+          "description": "Override index limits, e.g. {\"pr\": 1000, \"p\": 32767, \"vr\": 10, \"r\": 1000}."
+        },
+        "lscheck.rules": {
+          "type": "object",
+          "default": {},
+          "description": "Per-rule severity: {\"unused-position\": \"off\", \"missing-attr\": \"error\"}."
+        }
+      }
+    }
+  },
+  "extensionDependencies": [
+    "NathanBadanjek.fanuctpp"
+  ],
+  "devDependencies": {
+    "@lscheck/core": "0.1.0"
+  }
+}

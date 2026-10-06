@@ -1,0 +1,28 @@
+/PROG  SAMPLE_LOGIC
+/ATTR
+OWNER		= MNEDITOR;
+COMMENT		= "Sample logic";
+PROG_SIZE	= 0;
+CREATE		= DATE 22-03-13  TIME 11:56:56;
+MODIFIED	= DATE 22-03-13  TIME 11:56:56;
+FILE_NAME	= ;
+VERSION		= 0;
+LINE_COUNT	= 5;
+MEMORY_SIZE	= 0;
+PROTECT		= READ_WRITE;
+TCD:  STACK_SIZE	= 0,
+      TASK_PRIORITY	= 50,
+      TIME_SLICE	= 0,
+      BUSY_LAMP_OFF	= 0,
+      ABORT_REQUEST	= 0,
+      PAUSE_REQUEST	= 0;
+DEFAULT_GROUP	= 1,*,*,*,*;
+CONTROL_CODE	= 00000000 00000000;
+/MN
+   1:  !Wait for part ;
+   2:  IF (!DI[10:Part Present]),JMP LBL[5] ;
+   3:  WAIT .50(sec) ;
+   4:  LBL[5] ;
+   5:  CALL HOME    ;
+/POS
+/END
