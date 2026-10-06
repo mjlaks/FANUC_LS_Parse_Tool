@@ -181,3 +181,58 @@ export function choiceCombinations(body: string): string[] {
 export function gapAfterColon(def: SnippetDef): string {
   return def.motion ? '' : '  ';
 }
+
+/** What the cursor is expecting, from the text of the line before it. */
+export type CompletionContext =
+  | { kind: 'index'; type: 'P' | 'LBL' | 'R'; typed: string }
+  | { kind: 'call'; typed: string }
+  | {
+      kind: 'statement';
+      /** The word typed so far (may be empty) */
+      typed: string;
+      /** Number on this line, if it has one */
+      lineNo?: number;
+      /** Column just after "N:" (0 when the line has no number) */
+      colonEnd: number;
+      /** Blanks currently between the colon and the typed word */
+      gap: string;
+    };
+
+/**
+ * Decide which completions apply. Indices and program names are never offered inside a comment (`!...`), a disabled
+ * line (`//...`), a quoted string or `MESSAGE[...]` text, where the user is writing free text.
+ */
+export function completionContext(before: string): CompletionContext | undefined {
+  const st = /^(\s*\d+:)(\s*)([A-Za-z_!]*)$/.exec(before);
+  const bare = st ? null : /^(\s*)([A-Za-z_!]*)$/.exec(before);
+  if (st || bare) {
+    return st
+      ? { kind: 'statement', typed: st[3], lineNo: Number(/\d+/.exec(st[1])![0]), colonEnd: st[1].length, gap: st[2] }
+      : { kind: 'statement', typed: bare![2], colonEnd: 0, gap: bare![1] };
+  }
+  const body = before.replace(/^\s*\d+:\s*/, '');
+  if (body.startsWith('!') || body.startsWith('//')) return undefined;
+  if ((body.match(/'/g)?.length ?? 0) % 2 === 1 || (body.match(/"/g)?.length ?? 0) % 2 === 1) return undefined;
+  if (/(?:^|[^A-Za-z_])MESSAGE\[[^\]]*$/i.test(body)) return undefined;
+  // inside the name part of R[1:name ...], where the text is a free comment
+  const open: boolean[] = [];
+  for (const c of body) {
+    if (c === '[') open.push(false);
+    else if (c === ']') open.pop();
+    else if (c === ':' && open.length) open[open.length - 1] = true;
+  }
+  if (open.some(Boolean)) return undefined;
+  const idx = /(?<![A-Za-z_])(P|LBL|R)\[(\d*)$/i.exec(before);
+  if (idx) return { kind: 'index', type: idx[1].toUpperCase() as 'P' | 'LBL' | 'R', typed: idx[2] };
+  const call = /(?<![A-Za-z_])(?:CALL|RUN)\s+([A-Za-z0-9_]*)$/i.exec(before);
+  if (call) return { kind: 'call', typed: call[1] };
+  return undefined;
+}
+
+/** The edit that puts exactly the controller's gap between "N:" and the statement (null if it is already right). */
+export function gapEdit(ctx: Extract<CompletionContext, { kind: 'statement' }>, def: SnippetDef): { start: number; end: number; newText: string } | null {
+  if (ctx.lineNo === undefined) return null;
+  const want = gapAfterColon(def);
+  if (ctx.gap === want) return null;
+  return { start: ctx.colonEnd, end: ctx.colonEnd + ctx.gap.length, newText: want };
+}

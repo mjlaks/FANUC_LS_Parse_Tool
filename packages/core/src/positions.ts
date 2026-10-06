@@ -124,3 +124,15 @@ export function applyInsertEdits(source: string, edits: InsertEdit[]): string {
   }
   return out;
 }
+
+/**
+ * Edit that defines LBL[n] on its own line right after `line` (0-based), numbered one past that line. The number is
+ * only a hint; the TP editor extension renumbers.
+ */
+export function createLabelEdit(source: string, line: number, n: number): InsertEdit {
+  const eol = /\r\n/.test(source) ? '\r\n' : /\n/.test(source) ? '\n' : /\r/.test(source) ? '\r' : '\n';
+  const text = source.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)[line] ?? '';
+  const ln = /^\s*(\d+):/.exec(text);
+  const prefix = ln ? `${String(Number(ln[1]) + 1).padStart(4, ' ')}:  ` : '  ';
+  return { line, character: text.length, newText: `${eol}${prefix}LBL[${n}] ;` };
+}

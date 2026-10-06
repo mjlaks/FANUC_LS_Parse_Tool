@@ -16,6 +16,8 @@ const SEVERITY: Record<Diagnostic['severity'], vscode.DiagnosticSeverity> = {
 export function activate(context: vscode.ExtensionContext) {
   const collection = vscode.languages.createDiagnosticCollection('lscheck');
   const timers = new Map<string, NodeJS.Timeout>();
+  // core diagnostics of the last run per document, so quick fixes can use the fixes they carry
+  const lastRun = new Map<string, { version: number; diags: Diagnostic[] }>();
 
   const configFor = (doc: vscode.TextDocument) => {
     const s = vscode.workspace.getConfiguration('lscheck', doc.uri);
@@ -52,6 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
     const loaded: { config: ReturnType<typeof mergeConfig>; error?: string; dir?: string } = configFor(doc);
     const diags = check(doc.getText(), loaded.config, { cursorLine: editor?.selection.active.line, workspace: workspaceFor(doc, loaded.dir) });
     if (loaded.error) diags.unshift(configErrorDiagnostic(loaded.error));
+    lastRun.set(doc.uri.toString(), { version: doc.version, diags });
     collection.set(
       doc.uri,
       diags.map((d) => {
@@ -93,6 +96,7 @@ export function activate(context: vscode.ExtensionContext) {
       clearTimeout(timers.get(d.uri.toString()));
       timers.delete(d.uri.toString());
       collection.delete(d.uri);
+      lastRun.delete(d.uri.toString());
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('lscheck')) vscode.workspace.textDocuments.forEach(schedule);
@@ -105,6 +109,10 @@ export function activate(context: vscode.ExtensionContext) {
   vscode.workspace.textDocuments.forEach(schedule);
 
   registerEditing(context, {
+    diagnostics: (doc) => {
+      const hit = lastRun.get(doc.uri.toString());
+      return hit && hit.version === doc.version ? hit.diags : undefined;
+    },
     programs: (doc) => {
       const loaded = configFor(doc);
       return [...(workspaceFor(doc, loaded.dir)?.programs ?? []), ...loaded.config.externalPrograms.map((n) => n.toUpperCase())];

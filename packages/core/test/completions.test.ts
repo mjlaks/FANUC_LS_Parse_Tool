@@ -141,3 +141,81 @@ test('inserted record matches a corpus record byte for byte', () => {
   const expected = real.replace(/^P\[\d+\]/, 'P[12]').replace('Z =    -7.000  mm', 'Z =     0.000  mm');
   assert.equal(positionRecord(12, 1, 1), expected);
 });
+
+// ---- editor logic that does not need an editor (editing.ts delegates to these) ----
+
+import { completionContext, createLabelEdit, gapEdit } from '../src';
+
+const stmt = (c: ReturnType<typeof completionContext>) => c as Extract<NonNullable<typeof c>, { kind: 'statement' }>;
+
+test('completion context: statement, index and CALL branches', () => {
+  assert.deepEqual(completionContext('  12:  J'), { kind: 'statement', typed: 'J', lineNo: 12, colonEnd: 5, gap: '  ' });
+  assert.deepEqual(completionContext('  12:'), { kind: 'statement', typed: '', lineNo: 12, colonEnd: 5, gap: '' });
+  assert.deepEqual(completionContext('J'), { kind: 'statement', typed: 'J', colonEnd: 0, gap: '' });
+  assert.deepEqual(completionContext('  12:J P['), { kind: 'index', type: 'P', typed: '' });
+  assert.deepEqual(completionContext('  12:  JMP LBL[1'), { kind: 'index', type: 'LBL', typed: '1' });
+  assert.deepEqual(completionContext('  12:  R[3]=R['), { kind: 'index', type: 'R', typed: '' });
+  assert.equal(completionContext('  12:  PR['), undefined);
+  assert.deepEqual(completionContext('  12:  CALL FO'), { kind: 'call', typed: 'FO' });
+  assert.deepEqual(completionContext('  12:  IF R[1]=1,RUN '), { kind: 'call', typed: '' });
+});
+
+test('completion context: nothing inside comments, disabled lines, strings and MESSAGE text', () => {
+  for (const line of ['  12:  !move to P[', '  12:  ! CALL ', '  12:  //J P[', "  12:  VISION RUN_FIND 'CAM P[", '  12:  MESSAGE[call P[', '  12:  R[1:name with P[']) {
+    assert.equal(completionContext(line), undefined, line);
+  }
+});
+
+test('gap rewrite: motion loses the blanks after the colon, others get two', () => {
+  const j = SNIPPETS.find((s) => s.id === 'J-P')!;
+  const jmp = SNIPPETS.find((s) => s.id === 'jmp')!;
+  assert.deepEqual(gapEdit(stmt(completionContext('  12:  J')), j), { start: 5, end: 7, newText: '' });
+  assert.equal(gapEdit(stmt(completionContext('  12:J')), j), null);
+  assert.deepEqual(gapEdit(stmt(completionContext('  12:J')), jmp), { start: 5, end: 5, newText: '  ' });
+  assert.deepEqual(gapEdit(stmt(completionContext('  12:   JM')), jmp), { start: 5, end: 8, newText: '  ' });
+  assert.equal(gapEdit(stmt(completionContext('  12:  JM')), jmp), null);
+  assert.equal(gapEdit(stmt(completionContext('J')), jmp), null); // no line number: nothing to align
+});
+
+// ---- Create LBL quick fix ----
+
+test('create-label edit defines the missing label after the jump line', () => {
+  const src = MN('   1:  JMP LBL[7] ;', '   2:  !x ;') + '/POS\n/END\n';
+  const d = check(src, cfg).find((x) => x.code === 'undefined-label')!;
+  assert.ok(d);
+  const out = applyInsertEdits(src, [createLabelEdit(src, d.line, 7)]);
+  assert.equal(out, MN('   1:  JMP LBL[7] ;', '   2:  LBL[7] ;', '   2:  !x ;') + '/POS\n/END\n');
+  assert.deepEqual(check(out, cfg).filter((x) => x.severity === 'error'), []);
+});
+
+// ---- spacing fixes ----
+
+function applyFixes(src: string): string {
+  const lines = src.split('\n');
+  const fixes = check(src, cfg).flatMap((d) => (d.code === 'bad-spacing' && d.fix ? [d.fix] : []));
+  fixes.sort((a, b) => b.line - a.line || b.column - a.column);
+  for (const f of fixes) lines[f.line] = lines[f.line].slice(0, f.column) + f.newText + lines[f.line].slice(f.endColumn);
+  return lines.join('\n');
+}
+
+test('spacing fix rewrites pad, gap, alignment and inner gaps to the controller form', () => {
+  const cases: Array<[string, string]> = [
+    ['   1:  R[2]=5  ;', '   1:  R[2]=5    ;'], // the block-body case: typed over the empty line
+    ['   1:  CALL FOO ;', '   1:  CALL FOO    ;'],
+    ['   1:  CALL FOO(1)    ;', '   1:  CALL FOO(1) ;'],
+    ['   1:  JMP LBL[1]  ;', '   1:  JMP LBL[1] ;'],
+    ['   1:J P[1] 100% FINE ;', '   1:J P[1] 100% FINE    ;'],
+    ['   1:  J P[1] 100% FINE    ;', '   1:J P[1] 100% FINE    ;'],
+    ['   1:J  P[1]  100%  FINE    ;', '   1:J P[1] 100% FINE    ;'],
+    ['   1: JMP LBL[1] ;', '   1:  JMP LBL[1] ;'],
+    ['1:  JMP LBL[1] ;', '   1:  JMP LBL[1] ;'],
+    ['   1:  R[1] = 2    ;', '   1:  R[1]=2    ;'],
+    ['   1:J P[1] 100% CNT 50    ;', '   1:J P[1] 100% CNT50    ;'],
+  ];
+  for (const [bad, good] of cases) {
+    const src = `${HEAD}${bad}\n   2:  LBL[1] ;\n/POS\n${POS}/END\n`.replace('J P[1]', 'J P[1]');
+    const fixed = applyFixes(src);
+    assert.ok(fixed.includes(good), `${bad} -> expected ${good}, got ${fixed.split('\n')[4]}`);
+    assert.deepEqual(check(fixed, cfg).filter((d) => d.code === 'bad-spacing'), [], bad);
+  }
+});

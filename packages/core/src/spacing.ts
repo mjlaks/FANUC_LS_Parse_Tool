@@ -17,6 +17,8 @@ export interface SpaceIssue {
   start: number;
   end: number;
   message: string;
+  /** Replacement for [start,end) that satisfies the rule */
+  fix: string;
 }
 
 const WORD_BEFORE_PAREN = new Set(['IF', 'WAIT', 'AND', 'OR']);
@@ -73,26 +75,26 @@ export function intraSpacing(text: string, kind: StmtKind): SpaceIssue[] {
     const prevWord = /([A-Za-z_]+)$/.exec(text.slice(0, i))?.[1].toUpperCase() ?? '';
     if (waitTime && i === lead + 4) {
       const want = Math.max(1, 7 - waitTime[2].length);
-      if (run !== ' '.repeat(want)) out.push({ start: i, end: j, message: `WAIT times are padded so the value is right-aligned: expected ${want} space(s) after WAIT` });
+      if (run !== ' '.repeat(want)) out.push({ start: i, end: j, message: `WAIT times are padded so the value is right-aligned: expected ${want} space(s) after WAIT`, fix: ' '.repeat(want) });
     } else if (run !== ' ') {
-      out.push({ start: i, end: j, message: run.includes('\t') ? 'Tabs are not used inside statements; use a single space' : 'Use a single space here; the controller never writes extra spaces' });
+      out.push({ start: i, end: j, message: run.includes('\t') ? 'Tabs are not used inside statements; use a single space' : 'Use a single space here; the controller never writes extra spaces', fix: ' ' });
     } else if (!/[A-Za-z0-9_%\])'.]/.test(L) || !/[A-Za-z0-9_(!'$.]/.test(R)) {
-      out.push({ start: i, end: j, message: `Unexpected space between '${L}' and '${R}'; the controller writes these together` });
+      out.push({ start: i, end: j, message: `Unexpected space between '${L}' and '${R}'; the controller writes these together`, fix: '' });
     } else if (R === '(' && !WORD_BEFORE_PAREN.has(prevWord)) {
-      out.push({ start: i, end: j, message: "Unexpected space before '('; the controller writes these together" });
+      out.push({ start: i, end: j, message: "Unexpected space before '('; the controller writes these together", fix: '' });
     } else if ((R === '!' || R === '$') && !WORD_BEFORE_BANG.has(prevWord)) {
-      out.push({ start: i, end: j, message: `Unexpected space before '${R}'; the controller writes these together` });
+      out.push({ start: i, end: j, message: `Unexpected space before '${R}'; the controller writes these together`, fix: '' });
     } else if (R === '.' && prevWord !== 'WAIT') {
-      out.push({ start: i, end: j, message: "Unexpected space before '.'" });
+      out.push({ start: i, end: j, message: "Unexpected space before '.'", fix: '' });
     }
     i = j;
   }
   // gaps that look like ordinary word breaks but are not valid here
   for (const m of text.matchAll(/(?<![A-Za-z_])(CNT|CR)([ \t]+)(\d)/gi)) {
-    if (!free[m.index!]) out.push({ start: m.index! + m[1].length, end: m.index! + m[1].length + m[2].length, message: `Remove the space after ${m[1].toUpperCase()} (write ${m[1].toUpperCase()}50)` });
+    if (!free[m.index!]) out.push({ start: m.index! + m[1].length, end: m.index! + m[1].length + m[2].length, message: `Remove the space after ${m[1].toUpperCase()} (write ${m[1].toUpperCase()}50)`, fix: '' });
   }
   for (const m of text.matchAll(/(\d)([ \t]+)(msec|sec)\b(?!\))/gi)) {
-    if (!free[m.index!]) out.push({ start: m.index! + 1, end: m.index! + 1 + m[2].length, message: `Remove the space before ${m[3]} (write 1.0${m[3]})` });
+    if (!free[m.index!]) out.push({ start: m.index! + 1, end: m.index! + 1 + m[2].length, message: `Remove the space before ${m[3]} (write 1.0${m[3]})`, fix: '' });
   }
   return out;
 }

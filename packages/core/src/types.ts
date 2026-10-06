@@ -14,6 +14,8 @@ export interface Diagnostic {
   incomplete?: boolean;
   /** Inclusive line span of the incomplete construct; the cursor anywhere inside it suppresses the diagnostic. */
   span?: [number, number];
+  /** For bad-spacing: the exact text edit that makes the whitespace match what the controller writes. */
+  fix?: { line: number; column: number; endColumn: number; newText: string };
 }
 
 export interface LsConfig {
