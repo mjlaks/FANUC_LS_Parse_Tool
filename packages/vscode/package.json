@@ -38,7 +38,19 @@
         "lscheck.limits": {
           "type": "object",
           "default": {},
-          "description": "Override index limits, e.g. {\"pr\": 1000, \"p\": 32767, \"vr\": 10, \"r\": 1000}."
+          "description": "Override index limits, e.g. {\"pr\": 1000, \"r\": 1000, \"vr\": 10, \"do\": 1024, \"ro\": 8, \"gi\": 100}. Keys: p, pr, vr, r, di, do, ri, ro, gi, go, ai, ao, ui, uo, si, so, f, m, sr, ar, timer, payload, uframe, utool."
+        },
+        "lscheck.macros": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Macro names accepted without an unknown-instruction hint."
+        },
+        "lscheck.externalPrograms": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Programs that exist only on the controller; CALL/RUN to these is never reported as unknown-program."
         },
         "lscheck.rules": {
           "type": "object",

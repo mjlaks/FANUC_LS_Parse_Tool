@@ -1,5 +1,6 @@
+import { InstrReport, parseInstr, StmtKind } from './instr';
 import { parseMotion, StmtError } from './motion';
-import { CheckOptions, defaultConfig, Diagnostic, LsConfig, Severity } from './types';
+import { CheckOptions, defaultConfig, Diagnostic, LsConfig, Severity, WorkspaceIndex } from './types';
 
 const SECTION_ORDER = ['PROG', 'ATTR', 'APPL', 'MN', 'POS', 'END'];
 const REQUIRED_ATTRS = [
@@ -16,7 +17,7 @@ export interface ParseResult {
   diagnostics: Diagnostic[];
 }
 
-export function parseLs(source: string, config: LsConfig = defaultConfig): ParseResult {
+export function parseLs(source: string, config: LsConfig = defaultConfig, workspace?: WorkspaceIndex): ParseResult {
   const lines = source.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/);
   const diags: Diagnostic[] = [];
   const add = (sev: Severity, code: string, line: number, col: number, end: number, message: string, incomplete = false, span?: [number, number]) =>
@@ -36,6 +37,19 @@ export function parseLs(source: string, config: LsConfig = defaultConfig): Parse
   let expectedNum = 1;
   const usedP: Array<{ n: number; line: number; col: number; end: number }> = [];
   const posLines = new Map<number, number>();
+  interface At { line: number; col: number; end: number }
+  const labelDefs: Array<At & { n: number }> = [];
+  const jumpRefs: Array<At & { n: number }> = [];
+  const callRefs: Array<At & { name: string; kind: 'CALL' | 'RUN' }> = [];
+  const blocks: Array<At & { kind: 'IF' | 'FOR'; seenElse: boolean }> = [];
+  const vrPopulated = new Set<number>();
+  let selectOpen = false;
+  let sawCall = false;
+  let pendingBlend = false;
+  let uframeSet = false;
+  let utoolSet = false;
+  let firstMotionChecked = false;
+  let lastMnLine = 0;
   // /POS state
   let posOpen: { n: number; line: number } | null = null;
   let sawEnd = false;
@@ -60,7 +74,13 @@ export function parseLs(source: string, config: LsConfig = defaultConfig): Parse
   };
   const closeSection = () => {
     if (section === 'ATTR') flushAttr();
-    if (section === 'MN') flushStmt();
+    if (section === 'MN') {
+      flushStmt();
+      for (const b of blocks) {
+        add('error', 'unbalanced-block', b.line, b.col, b.end, b.kind === 'IF' ? 'IF ... THEN has no matching ENDIF' : 'FOR has no matching ENDFOR', true, [b.line, lastMnLine]);
+      }
+      blocks.length = 0;
+    }
     if (section === 'POS' && posOpen) {
       add('error', 'unterminated-position', posOpen.line, 0, lines[posOpen.line].length, `P[${posOpen.n}] block is missing its closing "};"`, true, [posOpen.line, lastPosLine]);
       posOpen = null;
@@ -87,77 +107,173 @@ export function parseLs(source: string, config: LsConfig = defaultConfig): Parse
       const e = pos(b);
       return { line: s.line, col: s.col, end: e.line === s.line ? e.col : s.p.seg.col + s.p.len };
     };
+    const span: [number, number] = [segs[0].line, segs[segs.length - 1].line];
+    const trimmedAll = text.trimEnd().length;
 
     const body = text.trim();
-    if (!body || body.startsWith('!')) return;
-
-    let mStart = /^[JLCA][ \t]/.test(body) ? text.indexOf(body[0]) : -1;
-    if (mStart < 0 && /^IF\b/i.test(body)) {
-      // inline conditional: IF cond,<instruction> -- find the top-level comma
-      let depth = 0;
-      for (let k = 0; k < text.length; k++) {
-        const c = text[k];
-        if (c === '[' || c === '(') depth++;
-        else if (c === ']' || c === ')') depth--;
-        else if (c === ',' && depth === 0) {
-          const m = /^\s*([JLCA])[ \t]/.exec(text.slice(k + 1));
-          if (m) mStart = k + 1 + m[0].indexOf(m[1]);
-          break;
-        }
+    if (!body) return;
+    if (body.startsWith('//')) {
+      // Disabled line: not checked, but its P[n] references still count as uses
+      for (const m of text.matchAll(/(?<![A-Za-z])P\[(\d+)/g)) {
+        const r = range(m.index!, m.index! + m[0].length);
+        usedP.push({ n: Number(m[1]), line: r.line, col: r.col, end: r.end });
       }
+      return;
     }
-    if (mStart >= 0) {
-      const rep = parseMotion(text.slice(mStart), config);
-      const trimmedLen = text.slice(mStart).trimEnd().length;
-      const base = mStart;
-      for (const n of rep.notes) {
+
+    const stmtStart = range(text.indexOf(body[0]), text.indexOf(body[0]) + 1);
+    let kind: StmtKind = 'other';
+    let io = false;
+    let blend = false;
+    let isMotion = false;
+    let frameSet: 'UFRAME' | 'UTOOL' | undefined;
+    let calledBefore = sawCall;
+
+    // Merge a sub-report found at `base` (offset of its text inside the statement).
+    const absorb = (r: { notes: StmtError[]; error?: StmtError }, base: number, limit: number) => {
+      for (const n of r.notes) {
+        const x = range(n.start + base, n.end + base);
+        add(n.severity, n.code, x.line, x.col, x.end, n.message);
+      }
+      if (r.error) {
+        const x = range(r.error.start + base, r.error.end + base);
+        // a problem at the very end of the text is a statement still being typed
+        const incomplete = r.error.code === 'circular-incomplete' || r.error.start + base >= limit || r.error.code === 'expected-then';
+        add(r.error.severity, r.error.code, x.line, x.col, x.end, r.error.message, incomplete, span);
+      }
+    };
+    const refs = (r: InstrReport, base: number) => {
+      for (const [n, a, b] of r.posRefs) {
+        const x = range(a + base, b + base);
+        usedP.push({ n, line: x.line, col: x.col, end: x.end });
+      }
+      for (const l of r.labels) {
+        const x = range(l.start + base, l.end + base);
+        labelDefs.push({ n: l.n!, line: x.line, col: x.col, end: x.end });
+      }
+      for (const j of r.jumps) {
+        const x = range(j.start + base, j.end + base);
+        jumpRefs.push({ n: j.n!, line: x.line, col: x.col, end: x.end });
+      }
+      for (const c of r.calls) {
+        const x = range(c.start + base, c.end + base);
+        callRefs.push({ name: c.name!, kind: c.kind, line: x.line, col: x.col, end: x.end });
+        sawCall = true;
+      }
+      for (const v of r.vrSets) vrPopulated.add(v.n!);
+    };
+
+    const rep = parseInstr(text, config);
+    kind = rep.kind;
+    io = !!rep.io;
+    frameSet = rep.frameSet;
+    refs(rep, 0);
+    const motionFrom = rep.motionAt;
+    // Report instruction errors only when no motion is involved; otherwise errors before the motion still count
+    absorb(rep, 0, trimmedAll);
+
+    if (motionFrom !== undefined) {
+      isMotion = true;
+      const mrep = parseMotion(text.slice(motionFrom), config);
+      const base = motionFrom;
+      const mlimit = trimmedAll - motionFrom;
+      for (const n of mrep.notes) {
         const r = range(n.start + base, n.end + base);
         add(n.severity, n.code, r.line, r.col, r.end, n.message);
       }
-      for (const [n, a, b] of rep.positions) {
+      for (const [n, a, b] of mrep.positions) {
         const r = range(a + base, b + base);
         usedP.push({ n, line: r.line, col: r.col, end: r.end });
       }
-      if (rep.error) {
-        const r = range(rep.error.start + base, rep.error.end + base);
-        // a problem at the very end of the text is a statement still being typed
-        const incomplete = rep.error.code === 'circular-incomplete' || rep.error.start >= trimmedLen;
-        add(rep.error.severity, rep.error.code, r.line, r.col, r.end, rep.error.message, incomplete, [segs[0].line, segs[segs.length - 1].line]);
+      for (const [n, a, b] of mrep.jumps) {
+        const r = range(a + base, b + base);
+        jumpRefs.push({ n, line: r.line, col: r.col, end: r.end });
       }
-      return;
-    }
-
-    // Generic statement: balanced brackets/quotes, and note any P[n] references.
-    const stack: Array<[string, number]> = [];
-    let quote = '';
-    for (let k = 0; k < text.length; k++) {
-      const c = text[k];
-      if (quote) {
-        if (c === quote) quote = '';
-        continue;
-      }
-      if (c === '"' || c === "'") quote = c;
-      else if (c === '[' || c === '(') stack.push([c, k]);
-      else if (c === ']' || c === ')') {
-        const top = stack.pop();
-        if (!top || (top[0] === '[') !== (c === ']')) {
-          const r = range(k, k + 1);
-          add('error', 'unbalanced-bracket', r.line, r.col, r.end, `Unmatched '${c}'`, true);
-          return;
+      for (const [n, a, b] of mrep.vrUses) {
+        if (!vrPopulated.has(n) && !calledBefore) {
+          const r = range(a + base, b + base);
+          add('warning', 'vr-not-populated', r.line, r.col, r.end, `VR[${n}] is used by VOFFSET before any VISION GET_OFFSET fills it in this program`);
         }
       }
+      for (const [a, b] of mrep.actions) {
+        const act = parseInstr(text.slice(base + a, base + b), config);
+        refs(act, base + a);
+        absorb(act, base + a, trimmedAll);
+        if (act.motionAt !== undefined || (act.kind !== 'macro' && act.kind !== 'call' && act.kind !== 'assign' && act.kind !== 'jmp' && act.kind !== 'other' && !act.error))
+          add('warning', 'bad-trigger-action', ...(() => { const r = range(base + a, base + b); return [r.line, r.col, r.end] as [number, number, number]; })(), 'TB/TA/DB action should be an I/O or register assignment, CALL or JMP');
+      }
+      if (mrep.error) {
+        const r = range(mrep.error.start + base, mrep.error.end + base);
+        const incomplete = mrep.error.code === 'circular-incomplete' || mrep.error.start >= mlimit;
+        add(mrep.error.severity, mrep.error.code, r.line, r.col, r.end, mrep.error.message, incomplete, span);
+      }
+      blend = mrep.blend && !mrep.error;
+      kind = 'motion';
     }
-    if (quote || stack.length) {
-      const k = quote ? text.length - 1 : stack[stack.length - 1][1];
-      const r = range(k, k + 1);
-      add('error', 'unbalanced-bracket', r.line, r.col, r.end, quote ? `Unterminated ${quote} string` : `Missing closing for '${stack[stack.length - 1][0]}'`, true);
-      return;
+
+    // ---- state tracking: blocks, style lints ----------------------------------------------------
+    const bad = (code: string, msg: string, incomplete = false) => {
+      add('error', code, stmtStart.line, stmtStart.col, Math.min(stmtStart.end, stmtStart.col + 1) + 5, msg, incomplete, span);
+    };
+    if (!rep.error) {
+      switch (kind) {
+        case 'if-block':
+          blocks.push({ kind: 'IF', line: stmtStart.line, col: stmtStart.col, end: stmtStart.end, seenElse: false });
+          break;
+        case 'for':
+          blocks.push({ kind: 'FOR', line: stmtStart.line, col: stmtStart.col, end: stmtStart.end, seenElse: false });
+          break;
+        case 'else': {
+          const top = blocks[blocks.length - 1];
+          if (!top || top.kind !== 'IF') bad('unbalanced-block', top ? `ELSE inside ${top.kind} without a matching IF` : 'ELSE without a matching IF ... THEN');
+          else if (top.seenElse) bad('unbalanced-block', 'IF block already has an ELSE');
+          else top.seenElse = true;
+          break;
+        }
+        case 'endif': {
+          const top = blocks[blocks.length - 1];
+          if (!top || top.kind !== 'IF') bad('unbalanced-block', top ? `ENDIF found while a ${top.kind} block is open (missing ENDFOR?)` : 'ENDIF without a matching IF ... THEN');
+          else blocks.pop();
+          break;
+        }
+        case 'endfor': {
+          const top = blocks[blocks.length - 1];
+          if (!top || top.kind !== 'FOR') bad('unbalanced-block', top ? `ENDFOR found while an ${top.kind} block is open (missing ENDIF?)` : 'ENDFOR without a matching FOR');
+          else blocks.pop();
+          break;
+        }
+        case 'select':
+          selectOpen = true;
+          break;
+        case 'case':
+        case 'select-else':
+          if (!selectOpen) bad('unbalanced-block', kind === 'case' ? 'Case line (=value,action) without a preceding SELECT' : "'ELSE,<action>' without a preceding SELECT");
+          break;
+        case 'end':
+          selectOpen = false;
+          break;
+        default:
+          break;
+      }
     }
-    for (const m of text.matchAll(/(?<![A-Za-z])P\[(\d+)/g)) {
-      const r = range(m.index!, m.index! + m[0].length);
-      usedP.push({ n: Number(m[1]), line: r.line, col: r.col, end: r.end });
+    if (kind === 'comment' || kind === 'empty') return;
+    if (kind === 'label') return;
+
+    // I/O right after a CNT/CR move runs before the robot reaches the point
+    if (pendingBlend && io && !isMotion) {
+      add('warning', 'io-after-cnt', stmtStart.line, stmtStart.col, stmtStart.end, 'I/O instruction directly after a CNT/CR move runs before the robot reaches the point; use FINE, a TB/TA option, or WAIT');
     }
-  };
+    pendingBlend = blend;
+    if (frameSet === 'UFRAME') uframeSet = true;
+    if (frameSet === 'UTOOL') utoolSet = true;
+    if (isMotion && !firstMotionChecked) {
+      firstMotionChecked = true;
+      if (!(uframeSet && utoolSet) && !calledBefore) {
+        const missing = [uframeSet ? '' : 'UFRAME_NUM', utoolSet ? '' : 'UTOOL_NUM'].filter(Boolean).join(' and ');
+        add('warning', 'motion-before-frame', stmtStart.line, stmtStart.col, stmtStart.end, `First motion runs before ${missing} is set in this program`);
+      }
+    }
+  }
 
   for (let ln = 0; ln < lines.length; ln++) {
     const raw = lines[ln];
@@ -215,6 +331,7 @@ export function parseLs(source: string, config: LsConfig = defaultConfig): Parse
         break;
       }
       case 'MN': {
+        lastMnLine = ln;
         const m = /^(\s*)(\d*)(\s*):/.exec(raw);
         if (m) {
           const body = raw.slice(m[0].length);
@@ -301,13 +418,37 @@ export function parseLs(source: string, config: LsConfig = defaultConfig): Parse
   for (const [n, l] of posLines) {
     if (!used.has(n)) add('warning', 'unused-position', l, 0, lines[l].trimEnd().length, `P[${n}] is defined but never used`);
   }
+
+  // Labels: unique, and every literal JMP/Skip/TIMEOUT target defined
+  const defined = new Map<number, At>();
+  for (const l of labelDefs) {
+    const prev = defined.get(l.n);
+    if (prev) add('error', 'duplicate-label', l.line, l.col, l.end, `LBL[${l.n}] is already defined on line ${prev.line + 1}`);
+    else defined.set(l.n, l);
+  }
+  const jumped = new Set<number>();
+  for (const j of jumpRefs) {
+    jumped.add(j.n);
+    if (!defined.has(j.n)) add('error', 'undefined-label', j.line, j.col, j.end, `LBL[${j.n}] is jumped to but never defined`);
+  }
+  for (const l of labelDefs) if (!jumped.has(l.n)) add('hint', 'unused-label', l.line, l.col, l.end, `LBL[${l.n}] is never jumped to`);
+
+  // CALL/RUN targets, only when a workspace index is available
+  if (workspace) {
+    const self = result.programName?.toUpperCase();
+    const external = new Set(config.externalPrograms.map((n) => n.toUpperCase()));
+    for (const c of callRefs) {
+      if (c.name === self || workspace.programs.has(c.name) || external.has(c.name)) continue;
+      add('warning', 'unknown-program', c.line, c.col, c.end, `${c.kind} target ${c.name} was not found in the workspace; add it to "externalPrograms" if it lives only on the controller`);
+    }
+  }
   result.definedPositions = [...posLines.keys()];
   return result;
 }
 
 export function check(source: string, config: LsConfig = defaultConfig, opts: CheckOptions = {}): Diagnostic[] {
   const out: Diagnostic[] = [];
-  for (const d of parseLs(source, config).diagnostics) {
+  for (const d of parseLs(source, config, opts.workspace).diagnostics) {
     const rule = config.rules[d.code];
     if (rule === 'off') continue;
     const cur = opts.cursorLine;
