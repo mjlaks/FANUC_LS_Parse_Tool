@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { check, Diagnostic, mergeConfig, WorkspaceIndex } from '@lscheck/core';
 import { buildWorkspaceIndexAsync, configErrorDiagnostic, loadConfigFor } from '@lscheck/core/dist/node';
+import { registerEditing } from './editing';
 
 // Language ID registered by the TP editor extension; this extension adds diagnostics only.
 const LANGUAGE_ID = 'fanuctp_ls';
@@ -15,6 +16,12 @@ const SEVERITY: Record<Diagnostic['severity'], vscode.DiagnosticSeverity> = {
 export function activate(context: vscode.ExtensionContext) {
   const collection = vscode.languages.createDiagnosticCollection('lscheck');
   const timers = new Map<string, NodeJS.Timeout>();
+  // core diagnostics of the last run per document, so quick fixes can use the fixes they carry
+  // lines edited since the last check, and spacing rewrites already applied (never re-applied, so an editor
+  // extension that rewrites the line back cannot start a loop)
+  const touched = new Map<string, Set<number>>();
+  const autoFixed = new Set<string>();
+  const lastRun = new Map<string, { version: number; diags: Diagnostic[] }>();
 
   const configFor = (doc: vscode.TextDocument) => {
     const s = vscode.workspace.getConfiguration('lscheck', doc.uri);
@@ -51,6 +58,7 @@ export function activate(context: vscode.ExtensionContext) {
     const loaded: { config: ReturnType<typeof mergeConfig>; error?: string; dir?: string } = configFor(doc);
     const diags = check(doc.getText(), loaded.config, { cursorLine: editor?.selection.active.line, workspace: workspaceFor(doc, loaded.dir) });
     if (loaded.error) diags.unshift(configErrorDiagnostic(loaded.error));
+    lastRun.set(doc.uri.toString(), { version: doc.version, diags });
     collection.set(
       doc.uri,
       diags.map((d) => {
@@ -60,6 +68,22 @@ export function activate(context: vscode.ExtensionContext) {
         return vd;
       }),
     );
+    autoFixSpacing(doc, diags, editor?.selection.active.line);
+  };
+
+  // Once the cursor has left a line the user just edited, put its whitespace in the controller's form
+  const autoFixSpacing = (doc: vscode.TextDocument, diags: Diagnostic[], cursorLine: number | undefined) => {
+    const key = doc.uri.toString();
+    const edited = touched.get(key);
+    if (!edited || !vscode.workspace.getConfiguration('lscheck', doc.uri).get<boolean>('autoFixSpacing', true)) return;
+    const fixes = diags.filter((d) => d.code === 'bad-spacing' && d.fix && d.fix.line !== cursorLine && edited.has(d.fix.line) && d.fix.line < doc.lineCount);
+    for (const l of [...edited]) if (l !== cursorLine) edited.delete(l); // judged now; later edits re-add the line
+    const fresh = fixes.filter((d) => !autoFixed.has(`${key}\n${doc.lineAt(d.fix!.line).text}`));
+    if (!fresh.length) return;
+    const edit = new vscode.WorkspaceEdit();
+    for (const l of new Set(fresh.map((d) => d.fix!.line))) autoFixed.add(`${key}\n${doc.lineAt(l).text}`);
+    for (const d of fresh) edit.replace(doc.uri, new vscode.Range(d.fix!.line, d.fix!.column, d.fix!.line, d.fix!.endColumn), d.fix!.newText);
+    void vscode.workspace.applyEdit(edit);
   };
 
   const schedule = (doc: vscode.TextDocument) => {
@@ -86,12 +110,19 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     collection,
     vscode.workspace.onDidOpenTextDocument(schedule),
-    vscode.workspace.onDidChangeTextDocument((e) => schedule(e.document)),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      const set = touched.get(e.document.uri.toString()) ?? new Set<number>();
+      for (const c of e.contentChanges) for (let l = c.range.start.line; l <= c.range.start.line + c.text.split('\n').length - 1; l++) set.add(l);
+      touched.set(e.document.uri.toString(), set);
+      schedule(e.document);
+    }),
     vscode.window.onDidChangeTextEditorSelection((e) => schedule(e.textEditor.document)),
     vscode.workspace.onDidCloseTextDocument((d) => {
       clearTimeout(timers.get(d.uri.toString()));
       timers.delete(d.uri.toString());
       collection.delete(d.uri);
+      lastRun.delete(d.uri.toString());
+      touched.delete(d.uri.toString());
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('lscheck')) vscode.workspace.textDocuments.forEach(schedule);
@@ -102,6 +133,17 @@ export function activate(context: vscode.ExtensionContext) {
     { dispose: () => timers.forEach(clearTimeout) },
   );
   vscode.workspace.textDocuments.forEach(schedule);
+
+  registerEditing(context, {
+    diagnostics: (doc) => {
+      const hit = lastRun.get(doc.uri.toString());
+      return hit && hit.version === doc.version ? hit.diags : undefined;
+    },
+    programs: (doc) => {
+      const loaded = configFor(doc);
+      return [...(workspaceFor(doc, loaded.dir)?.programs ?? []), ...loaded.config.externalPrograms.map((n) => n.toUpperCase())];
+    },
+  });
 }
 
 export function deactivate() {}

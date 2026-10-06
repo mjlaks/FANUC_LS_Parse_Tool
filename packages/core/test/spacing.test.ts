@@ -32,6 +32,8 @@ const GOOD = [
   ' 116:  WAIT (!DI[1]) TIMEOUT,LBL[1] ;',
   ' 117:  CALL FOO(1,AR[2]) ;',
   ' 118:  CALL FOO    ;',
+  '  46:  COL GUARD ADJUST     ;', // macro without arguments: 5 spaces seen on a real controller
+  '  47:  Clear User Page    ;',
   ' 119:  MESSAGE[  Two  spaces  ok  here] ;',
   ' 120:  ! a  comment  with spaces ;',
   ' 121:  //DO[1]=OFF ;',

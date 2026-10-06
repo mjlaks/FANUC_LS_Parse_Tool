@@ -113,24 +113,27 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
 
     // Whitespace rules (see spacing.ts): prefix after "N:", padding before ';', and gaps inside the statement
     const spacingCheck = (kind: StmtKind, disabled: boolean, hasError: boolean) => {
-      const flag = (line: number, col: number, end: number, msg: string) => add('error', 'bad-spacing', line, col, Math.max(end, col + 1), msg, true, span);
+      const flag = (line: number, col: number, end: number, msg: string, fix?: { column: number; endColumn: number; newText: string }) => {
+        add('error', 'bad-spacing', line, col, Math.max(end, col + 1), msg, true, span);
+        if (fix) diags[diags.length - 1].fix = { line, ...fix };
+      };
       const first = segs[0];
       const raw = lines[first.line];
       const pm = /^( *)(\d+)( *):( *)/.exec(raw);
       if (pm && !hasError) {
         const numEnd = pm[1].length + pm[2].length;
-        if (pm[3]) flag(first.line, numEnd, numEnd + pm[3].length, "Remove the space before ':' in the line number");
-        else if (pm[2].length < 4 && numEnd !== 4) flag(first.line, 0, numEnd, 'Line numbers are right-aligned in 4 columns (e.g. "  38:")');
+        if (pm[3]) flag(first.line, numEnd, numEnd + pm[3].length, "Remove the space before ':' in the line number", { column: numEnd, endColumn: numEnd + pm[3].length, newText: '' });
+        else if (pm[2].length < 4 && numEnd !== 4) flag(first.line, 0, numEnd, 'Line numbers are right-aligned in 4 columns (e.g. "  38:")', { column: 0, endColumn: numEnd, newText: pm[2].padStart(4, ' ') });
         const want = kind === 'empty' ? 3 : spacesAfterColon(kind, disabled);
         const colon = numEnd + pm[3].length + 1;
         if (want !== null && (terminated || kind !== 'empty') && pm[4].length !== want) {
           const hasBody = raw.slice(colon).trim() !== '';
-          if (hasBody || terminated) flag(first.line, colon, colon + pm[4].length, `Expected ${want} space${want === 1 ? '' : 's'} between the line number and the ${kind === 'motion' ? 'motion' : 'instruction'} (the controller writes "${' '.repeat(Math.max(0, 4 - numEnd))}${pm[2]}:${' '.repeat(want)}…")`);
+          if (hasBody || terminated) flag(first.line, colon, colon + pm[4].length, `Expected ${want} space${want === 1 ? '' : 's'} between the line number and the ${kind === 'motion' ? 'motion' : 'instruction'} (the controller writes "${' '.repeat(Math.max(0, 4 - numEnd))}${pm[2]}:${' '.repeat(want)}…")`, { column: colon, endColumn: colon + pm[4].length, newText: ' '.repeat(want) });
         }
       }
       if (!disabled && kind !== 'empty') for (const x of intraSpacing(text, kind)) {
         const r = range(x.start, x.end);
-        flag(r.line, r.col, r.end, x.message);
+        flag(r.line, r.col, r.end, x.message, { column: r.col, endColumn: r.end, newText: x.fix });
       }
       if (terminated && segs.length === 1 && !hasError) {
         const pad = /([ \t]*);\s*$/.exec(raw);
@@ -139,7 +142,7 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
           const at = raw.length - raw.replace(/\s+$/, '').length;
           const col = raw.replace(/\s+$/, '').length - 1 - pad[1].length;
           void at;
-          flag(first.line, col + 1, col + 1 + Math.max(1, pad[1].length), `Expected ${allowed.join(' or ')} space${allowed.length === 1 && allowed[0] === 1 ? '' : 's'} before ';' for this instruction`);
+          flag(first.line, col + 1, col + 1 + Math.max(1, pad[1].length), `Expected ${allowed.join(' or ')} space${allowed.length === 1 && allowed[0] === 1 ? '' : 's'} before ';' for this instruction`, { column: col, endColumn: col + pad[1].length, newText: ' '.repeat(allowed[0]) });
         }
       }
     };
