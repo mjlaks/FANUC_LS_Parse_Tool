@@ -34,7 +34,7 @@ Options: `--format json`, `--firmware V9.40`, `--max-warnings N`, `--no-workspac
 ## Notes
 
 - `firmware` / `--firmware` is **reserved**: it is carried in the config but no rule is gated on it yet (V9.30 and V9.40 share one dialect in Milestone 1).
-- A space between a speed value and its unit (`50 mm/sec`) produces a `speed-spacing` warning: the controller always writes them together, and it is unconfirmed whether the loader accepts a gap. Verify with maketp.
+- A space between a speed value and its unit (`50 mm/sec`) is a `speed-spacing` error (see Spacing above).
 - A malformed `.lscheckrc.json` yields a `config-error` diagnostic and falls back to defaults.
 
 ## Coverage
@@ -54,7 +54,7 @@ Milestones 2 and 3
 - **Motion options**: `Offset`, `Tool_Offset`, `VOFFSET`, `Skip`, `TB`/`TA`/`DB` (their actions are checked as instructions), `INC`, `ACC` (0..500), `PTH`, `Wjnt`, `RTCP`, `COORD`, `EV`, `AP_LD`, `RT_LD`, `PSPD`, ...; PR/VR indices checked
 - **Ranges**: `OVERRIDE` 1..100, `UFRAME_NUM`, `UTOOL_NUM`, labels 1..32766, `PULSE` width
 - **Unknown instructions**: TP macros are named by the shop, so an unrecognized name is a hint, and a near-miss of a real keyword (`CALLL`) is a warning with a suggestion; list known macros under `macros` to silence both. Only text that cannot be a macro name is an error.
-- **Spacing** (`odd-spacing` warning; none appears in the real corpus): space before `[` (`DO [1]`, `P [8]`), spaces inside brackets (`R[ 1 ]`), spaces around the `=` of an assignment (`DO[1] = ON`), `CNT 1`, a space before a PULSE unit. Extra spaces or tabs after the line number, before `;`, or between motion fields are not flagged (the controller writes them itself). It is unconfirmed whether the loader rejects these; verify with maketp.
+- **Spacing** (`bad-spacing` error): hand-typed spacing fails on the controller, so only the spacing the controller itself writes (as seen in the corpus) is accepted. Line numbers right-aligned in 4 columns with no space before the colon; after the colon 0 spaces for a motion, 2 for other instructions, 9 for `SELECT` cases and `ELSE,<action>`, 3 for an empty line; a fixed pad before `;` per instruction (motion 4, comments and `JMP`/`IF`/`DO`... 1, `CALL` 1 with arguments and 4 without, `WAIT` and register assignments 1 or 4); one space only between words and values inside a statement (never around `=`, `,`, `+ - * /`, `< >`, before `[`, inside `[ ]`, in `CNT 1`, `25 mm/sec` or `1.0 sec`); `WAIT` times padded to a fixed width. Text inside comments, `MESSAGE[...]` and quoted strings is free. Rules in `rules` can downgrade or turn it off (`"bad-spacing": "off"`). Bad spacing on the line being edited is hidden until you move away.
 - **Style lints** (warnings; turn off with `rules`): `io-after-cnt` (output instruction directly after a CNT/CR move), `motion-before-frame` (first motion before `UFRAME_NUM` and `UTOOL_NUM` are set; skipped after a `CALL`/`RUN`)
 
 Not yet covered: type checks between operands (`R[1]=ON`), mixed AND/OR precedence rules, `/APPL` contents, `/POS` coordinate fields, KAREL calls with typed arguments.

@@ -147,7 +147,6 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
     const m = [mm[1]];
     const name = m[0].toUpperCase();
     const start = i;
-    if (mm[2]) warn(start + m[0].length, start + mm[0].length - 1, 'odd-spacing', `Remove the space before '[' (write ${m[0]}[n]); the controller never writes one`);
     i += mm[0].length; // name, gap and '['
     const cs = i;
     let depth = 1;
@@ -162,7 +161,6 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
     const out: Ref = { name, start, end };
     if (name === 'MESSAGE') return out; // free text
     const lead = inner.length - inner.trimStart().length;
-    if (inner.trim() && !inner.includes(':') && (lead > 0 || /\s$/.test(inner))) warn(cs, end - 1, 'odd-spacing', `Remove the spaces inside ${m[0]}[...]; the controller never writes them`);
     let k = cs + lead;
     const body = inner.trimStart();
     if (!body) fail(start, end, 'empty-index', `${m[0]}[] needs an index`);
@@ -451,14 +449,11 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
         fail(r.start, r.end, 'not-assignable', `${r.name}[...] cannot be assigned`);
       if (r.name === 'LBL') fail(start, r.end, 'bad-statement', 'LBL[n] cannot be assigned; use JMP LBL[n] or LBL[n:comment]');
     }
-    const beforeEq = i;
     ws();
-    if (i > beforeEq && s[i] === '=') warn(beforeEq, i, 'odd-spacing', "Remove the space before '='; the controller writes assignments as R[1]=5");
     if (!eat('=')) {
       // a bare statement like TIMER[1] has no meaning; PAYLOAD/MESSAGE/UALM are handled before this
       return fail(i, i + 1, 'expected-token', `Expected '=' after ${s.slice(start, i).trim() || 'the target'}`);
     }
-    if (s[i] === ' ' || s[i] === '\t') warn(i - 1, i + 1, 'odd-spacing', "Remove the space after '='; the controller writes assignments as R[1]=5");
     ws();
     if (lhsName === 'TIMER') {
       const w = word()?.toUpperCase();
@@ -475,10 +470,7 @@ export function parseInstr(s: string, cfg: LsConfig): InstrReport {
           const n = number();
           if (n === null) fail(at, at + 1, 'expected-operand', 'PULSE needs a width such as 0.5sec');
           const um = /^([ \t]*)(msec|sec)/i.exec(rest());
-          if (um) {
-            if (um[1]) warn(i, i + um[1].length, 'odd-spacing', 'Remove the space before the PULSE unit (write 1.0sec)');
-            i += um[0].length;
-          }
+          if (um) i += um[0].length;
           const w = Number(n) * (um && um[2].toLowerCase() === 'msec' ? 0.001 : 1);
           if (w < 0.1 || w > 25.5) warn(at, i, 'pulse-width', 'PULSE width should be 0.1..25.5 sec');
         }

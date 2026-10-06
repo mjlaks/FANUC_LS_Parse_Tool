@@ -1,5 +1,6 @@
 import { InstrReport, parseInstr, StmtKind } from './instr';
 import { parseMotion, StmtError } from './motion';
+import { allowedPad, intraSpacing, spacesAfterColon } from './spacing';
 import { CheckOptions, defaultConfig, Diagnostic, LsConfig, Severity, WorkspaceIndex } from './types';
 
 const SECTION_ORDER = ['PROG', 'ATTR', 'APPL', 'MN', 'POS', 'END'];
@@ -110,9 +111,46 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
     const span: [number, number] = [segs[0].line, segs[segs.length - 1].line];
     const trimmedAll = text.trimEnd().length;
 
+    // Whitespace rules (see spacing.ts): prefix after "N:", padding before ';', and gaps inside the statement
+    const spacingCheck = (kind: StmtKind, disabled: boolean, hasError: boolean) => {
+      const flag = (line: number, col: number, end: number, msg: string) => add('error', 'bad-spacing', line, col, Math.max(end, col + 1), msg, true, span);
+      const first = segs[0];
+      const raw = lines[first.line];
+      const pm = /^( *)(\d+)( *):( *)/.exec(raw);
+      if (pm && !hasError) {
+        const numEnd = pm[1].length + pm[2].length;
+        if (pm[3]) flag(first.line, numEnd, numEnd + pm[3].length, "Remove the space before ':' in the line number");
+        else if (pm[2].length < 4 && numEnd !== 4) flag(first.line, 0, numEnd, 'Line numbers are right-aligned in 4 columns (e.g. "  38:")');
+        const want = kind === 'empty' ? 3 : spacesAfterColon(kind, disabled);
+        const colon = numEnd + pm[3].length + 1;
+        if (want !== null && (terminated || kind !== 'empty') && pm[4].length !== want) {
+          const hasBody = raw.slice(colon).trim() !== '';
+          if (hasBody || terminated) flag(first.line, colon, colon + pm[4].length, `Expected ${want} space${want === 1 ? '' : 's'} between the line number and the ${kind === 'motion' ? 'motion' : 'instruction'} (the controller writes "${' '.repeat(Math.max(0, 4 - numEnd))}${pm[2]}:${' '.repeat(want)}…")`);
+        }
+      }
+      if (!disabled && kind !== 'empty') for (const x of intraSpacing(text, kind)) {
+        const r = range(x.start, x.end);
+        flag(r.line, r.col, r.end, x.message);
+      }
+      if (terminated && segs.length === 1 && !hasError) {
+        const pad = /([ \t]*);\s*$/.exec(raw);
+        const allowed = disabled ? [1, 4] : allowedPad(kind, text);
+        if (pad && allowed && !allowed.includes(pad[1].length)) {
+          const at = raw.length - raw.replace(/\s+$/, '').length;
+          const col = raw.replace(/\s+$/, '').length - 1 - pad[1].length;
+          void at;
+          flag(first.line, col + 1, col + 1 + Math.max(1, pad[1].length), `Expected ${allowed.join(' or ')} space${allowed.length === 1 && allowed[0] === 1 ? '' : 's'} before ';' for this instruction`);
+        }
+      }
+    };
+
     const body = text.trim();
-    if (!body) return;
+    if (!body) {
+      spacingCheck('empty', false, false);
+      return;
+    }
     if (body.startsWith('//')) {
+      spacingCheck('other', true, false);
       // Disabled line: not checked, but its P[n] references still count as uses
       for (const m of text.matchAll(/(?<![A-Za-z])P\[(\d+)/g)) {
         const r = range(m.index!, m.index! + m[0].length);
@@ -262,6 +300,7 @@ export function parseLs(source: string, config: LsConfig = defaultConfig, worksp
           break;
       }
     }
+    spacingCheck(kind, false, !!rep.error);
     if (kind === 'comment' || kind === 'empty') return;
     if (kind === 'label') return;
 

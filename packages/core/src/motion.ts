@@ -59,7 +59,6 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
     if (!mm) return null;
     const m = [mm[1]];
     const start = i;
-    if (mm[2]) rep.notes.push(new StmtError(start + m[0].length, start + mm[0].length - 1, 'odd-spacing', `Remove the space before '[' (write ${m[0]}[n]); the controller never writes one`, 'warning'));
     i += mm[0].length;
     const cs = i;
     let depth = 1;
@@ -73,8 +72,8 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
     }
     if (depth > 0) fail(start, i, 'unbalanced-bracket', `Missing ']' for ${m[0]}[`);
     const content = s.slice(cs, i - 1);
-    if (content.trim() && !content.includes(':') && /^\s|\s$/.test(content)) rep.notes.push(new StmtError(cs, i - 1, 'odd-spacing', `Remove the spaces inside ${m[0]}[...]; the controller never writes them`, 'warning'));
     const im = /^\s*(?:GP\d+:)?(\d+)/.exec(content);
+    if (im && !/^\s*([:,]|$)/.test(content.slice(im[0].length))) fail(start, i, 'bad-index', `Unexpected '${content.slice(im[0].length).split(':')[0].trim()}' after the index in ${m[0]}[...]`);
     return { name: m[0].toUpperCase(), content, start, end: i, index: im ? Number(im[1]) : undefined };
   };
 
@@ -121,8 +120,8 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
         let k = i;
         while (s[k] === ' ' || s[k] === '\t') k++;
         if (UNIT_RE.test(s.slice(k))) {
-          // controller output never has a gap; unconfirmed whether the loader accepts one
-          rep.notes.push(new StmtError(i, k, 'speed-spacing', 'Space between speed value and unit; the controller writes them together (e.g. 100mm/sec)', 'warning'));
+          // controller output never has a gap, and gaps fail on the controller (per the project owner)
+          rep.notes.push(new StmtError(i, k, 'speed-spacing', 'Space between speed value and unit; the controller writes them together (e.g. 100mm/sec)'));
           i = k;
         }
       }
@@ -153,9 +152,7 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
     const word = m[0].toUpperCase();
     if (word === 'FINE') return;
     rep.blend = true;
-    const gapAt = i;
     while (s[i] === ' ' || s[i] === '\t') i++;
-    if (i > gapAt && /\d/.test(s[i] ?? '')) rep.notes.push(new StmtError(gapAt, i, 'odd-spacing', `Remove the space after ${word} (write ${word}50); the controller writes them together`, 'warning'));
     if (/^R\[/i.test(s.slice(i))) {
       readRef();
       return;
