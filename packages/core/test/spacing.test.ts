@@ -107,6 +107,13 @@ test('WAIT and register assignments end with 4 spaces', () => {
   assert.equal(bad(' 104:  WAIT    .50(sec)    ;'), 1);
 });
 
+test('macro-style lines: 1 space with arguments, 4 without', () => {
+  assert.equal(spacing(' 104:  Program Status(5) ;').length, 0);
+  assert.equal(spacing(' 104:  Program Status(5)    ;').length, 1);
+  assert.equal(spacing(' 104:  Clear User Page    ;').length, 0);
+  assert.equal(spacing(' 104:  Clear User Page ;').length, 1);
+});
+
 test('after the colon: motion 0 spaces, other instructions 2', () => {
   assert.equal(spacing('  38:L P[6] 25mm/sec CNT1    ;').length, 0);
   assert.equal(spacing('  38:  LBL[999] ;').length, 0);

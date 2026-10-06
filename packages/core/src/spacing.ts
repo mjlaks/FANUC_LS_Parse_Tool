@@ -133,6 +133,7 @@ export function allowedPad(kind: StmtKind, text: string): number[] | null {
       }
       return [1];
     }
-    default: return [1, 4];
+    case 'macro': return /\(/.test(t) ? [1] : [4]; // 1 with arguments, 4 without
+    default: return [1, 4]; // forms the corpus never shows: unverified
   }
 }

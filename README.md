@@ -67,14 +67,15 @@ Milestones 2 and 3
     | `IF cond,<action>` (not a motion action) | 1 |
     | `CALL prog(args)` | 1 |
     | `CALL prog` (no arguments) | 4 |
-    | Macro-style lines (`Program Status(5)`, `Clear User Page`) | 1 or 4 (corpus shows 1 with arguments, 4 without, but also a 1 for a scrubbed placeholder) |
+    | Macro-style line with arguments (`Program Status(5)`) | 1 |
+    | Macro-style line without arguments (`Clear User Page`) | 4 |
     | `WAIT <condition>` | 4 |
     | `WAIT <time>(sec)`, `WAIT <condition> TIMEOUT,LBL[n]` | 1 |
     | `R`/`PR`/`SR` assignment | 4 |
     | `R`/`PR`/`SR` assignment from a system variable, or with parenthesised arithmetic such as `R[1]=((R[2]-1)*R[3])` (a negative literal `(-3)` is not arithmetic) | 1 |
     | `DO`/`RO`/`GO`/`F` outputs, `UFRAME_NUM`, `UTOOL_NUM`, `OVERRIDE`, `$sysvar=`, `TIMER`, `PAYLOAD`, `UALM`, `MESSAGE` | 1 |
-    | `//` disabled line | 1 or 4 (the corpus shows both, following the instruction underneath) |
-    | Instructions the corpus never shows (`FOR`, `ENDFOR`, `MONITOR`, ...) | 1 or 4 |
+    | `//` disabled line | 1 or 4 (unverified: the corpus shows both) |
+    | Instructions the corpus never shows (`FOR`, `ENDFOR`, `MONITOR`, ...) | 1 or 4 (unverified) |
 - **Style lints** (warnings; turn off with `rules`): `io-after-cnt` (output instruction directly after a CNT/CR move), `motion-before-frame` (first motion before `UFRAME_NUM` and `UTOOL_NUM` are set; skipped after a `CALL`/`RUN`)
 
 Not yet covered: type checks between operands (`R[1]=ON`), mixed AND/OR precedence rules, `/APPL` contents, `/POS` coordinate fields, KAREL calls with typed arguments.

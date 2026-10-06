@@ -23,7 +23,7 @@ CONTROL_CODE	= 00000000 00000000;
    1:  ! List Menu ;
    2:  ! AR[1] menu no ;
    3:  ! AR[2] answer reg ;
-   4:  VENDOR Module-1-07 ;
+   4:  VENDOR Module-1-07    ;
    5:  LBL[1] ;
    6:  R[116]=0    ;
    7:  CALL MSGLIST(AR[1],AR[2]) ;
