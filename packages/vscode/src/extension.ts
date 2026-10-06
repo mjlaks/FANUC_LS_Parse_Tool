@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { check, Diagnostic, mergeConfig } from '@lscheck/core';
-import { configErrorDiagnostic, loadConfigFor } from '@lscheck/core/dist/node';
+import { check, Diagnostic, mergeConfig, WorkspaceIndex } from '@lscheck/core';
+import { buildWorkspaceIndex, configErrorDiagnostic, loadConfigFor } from '@lscheck/core/dist/node';
 
 // Language ID registered by the TP editor extension; this extension adds diagnostics only.
 const LANGUAGE_ID = 'fanuctp_ls';
@@ -18,16 +18,28 @@ export function activate(context: vscode.ExtensionContext) {
 
   const configFor = (doc: vscode.TextDocument) => {
     const s = vscode.workspace.getConfiguration('lscheck', doc.uri);
-    const base = mergeConfig({ firmware: s.get('firmware', 'V9.30'), limits: s.get('limits', {}), rules: s.get('rules', {}) });
+    const base = mergeConfig({ firmware: s.get('firmware', 'V9.30'), limits: s.get('limits', {}), rules: s.get('rules', {}), macros: s.get('macros', []), externalPrograms: s.get('externalPrograms', []) });
     // .lscheckrc.json (shared with the CLI) overrides editor settings
     return doc.uri.scheme === 'file' ? loadConfigFor(path.dirname(doc.uri.fsPath), base) : { config: base };
+  };
+
+  // CALL/RUN targets: index of programs under the config folder (or the file's folder), refreshed every few seconds
+  const indexes = new Map<string, { at: number; index: WorkspaceIndex }>();
+  const workspaceFor = (doc: vscode.TextDocument, dir?: string): WorkspaceIndex | undefined => {
+    if (doc.uri.scheme !== 'file') return undefined;
+    const root = dir ?? path.dirname(doc.uri.fsPath);
+    const hit = indexes.get(root);
+    if (hit && Date.now() - hit.at < 5000) return hit.index;
+    const index = buildWorkspaceIndex(root);
+    indexes.set(root, { at: Date.now(), index });
+    return index;
   };
 
   const run = (doc: vscode.TextDocument) => {
     if (doc.languageId !== LANGUAGE_ID) return;
     const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
-    const loaded = configFor(doc);
-    const diags = check(doc.getText(), loaded.config, { cursorLine: editor?.selection.active.line });
+    const loaded: { config: ReturnType<typeof mergeConfig>; error?: string; dir?: string } = configFor(doc);
+    const diags = check(doc.getText(), loaded.config, { cursorLine: editor?.selection.active.line, workspace: workspaceFor(doc, loaded.dir) });
     if (loaded.error) diags.unshift(configErrorDiagnostic(loaded.error));
     collection.set(
       doc.uri,
