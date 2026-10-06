@@ -54,6 +54,7 @@ Milestones 2 and 3
 - **Motion options**: `Offset`, `Tool_Offset`, `VOFFSET`, `Skip`, `TB`/`TA`/`DB` (their actions are checked as instructions), `INC`, `ACC` (0..500), `PTH`, `Wjnt`, `RTCP`, `COORD`, `EV`, `AP_LD`, `RT_LD`, `PSPD`, ...; PR/VR indices checked
 - **Ranges**: `OVERRIDE` 1..100, `UFRAME_NUM`, `UTOOL_NUM`, labels 1..32766, `PULSE` width
 - **Unknown instructions**: TP macros are named by the shop, so an unrecognized name is a hint, and a near-miss of a real keyword (`CALLL`) is a warning with a suggestion; list known macros under `macros` to silence both. Only text that cannot be a macro name is an error.
+- **Spacing** (`odd-spacing` warning; none appears in the real corpus): space before `[` (`DO [1]`, `P [8]`), spaces inside brackets (`R[ 1 ]`), spaces around the `=` of an assignment (`DO[1] = ON`), `CNT 1`, a space before a PULSE unit. Extra spaces or tabs after the line number, before `;`, or between motion fields are not flagged (the controller writes them itself). It is unconfirmed whether the loader rejects these; verify with maketp.
 - **Style lints** (warnings; turn off with `rules`): `io-after-cnt` (output instruction directly after a CNT/CR move), `motion-before-frame` (first motion before `UFRAME_NUM` and `UTOOL_NUM` are set; skipped after a `CALL`/`RUN`)
 
 Not yet covered: type checks between operands (`R[1]=ON`), mixed AND/OR precedence rules, `/APPL` contents, `/POS` coordinate fields, KAREL calls with typed arguments.

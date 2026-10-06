@@ -55,10 +55,12 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
 
   interface Ref { name: string; content: string; start: number; end: number; index?: number }
   const readRef = (): Ref | null => {
-    const m = /^[A-Za-z]+/.exec(s.slice(i));
-    if (!m || s[i + m[0].length] !== '[') return null;
+    const mm = /^([A-Za-z]+)([ \t]*)\[/.exec(s.slice(i));
+    if (!mm) return null;
+    const m = [mm[1]];
     const start = i;
-    i += m[0].length + 1;
+    if (mm[2]) rep.notes.push(new StmtError(start + m[0].length, start + mm[0].length - 1, 'odd-spacing', `Remove the space before '[' (write ${m[0]}[n]); the controller never writes one`, 'warning'));
+    i += mm[0].length;
     const cs = i;
     let depth = 1;
     while (i < s.length && depth > 0) {
@@ -71,6 +73,7 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
     }
     if (depth > 0) fail(start, i, 'unbalanced-bracket', `Missing ']' for ${m[0]}[`);
     const content = s.slice(cs, i - 1);
+    if (content.trim() && !content.includes(':') && /^\s|\s$/.test(content)) rep.notes.push(new StmtError(cs, i - 1, 'odd-spacing', `Remove the spaces inside ${m[0]}[...]; the controller never writes them`, 'warning'));
     const im = /^\s*(?:GP\d+:)?(\d+)/.exec(content);
     return { name: m[0].toUpperCase(), content, start, end: i, index: im ? Number(im[1]) : undefined };
   };
@@ -150,7 +153,9 @@ export function parseMotion(s: string, cfg: LsConfig): MotionReport {
     const word = m[0].toUpperCase();
     if (word === 'FINE') return;
     rep.blend = true;
+    const gapAt = i;
     while (s[i] === ' ' || s[i] === '\t') i++;
+    if (i > gapAt && /\d/.test(s[i] ?? '')) rep.notes.push(new StmtError(gapAt, i, 'odd-spacing', `Remove the space after ${word} (write ${word}50); the controller writes them together`, 'warning'));
     if (/^R\[/i.test(s.slice(i))) {
       readRef();
       return;

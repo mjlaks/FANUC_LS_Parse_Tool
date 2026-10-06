@@ -255,3 +255,22 @@ test('block diagnostics stay inside the line', () => {
   const line = body('ENDIF').split('\n')[d.line];
   assert.ok(d.endColumn <= line.length);
 });
+
+test('odd spacing is a toggleable warning, not an error', () => {
+  const w = (stmt: string) => codes(body(stmt), 'warning').filter((c) => c === 'odd-spacing').length;
+  for (const clean of ['DO[1:x]=ON', 'R[1]=R[2]+1', 'DO[1]=PULSE,1.0sec', 'JMP LBL[1]', 'IF R[1]=1,JMP LBL[1]', 'R[ 1 ]=5'.replace(' 1 ', '1')]) assert.equal(w(clean), 0, clean);
+  assert.equal(w('DO [1]=ON'), 1);
+  assert.equal(w('R [1]=5'), 1);
+  assert.equal(w('R[ 1 ]=5'), 1);
+  assert.equal(w('DO[1] = ON'), 2);
+  assert.equal(w('DO[1]=PULSE,1.0 sec'), 1);
+  assert.equal(w('JMP LBL [1]'), 1);
+  assert.deepEqual(errs('DO [1]=ON', 'R[ 1 ]=5', 'DO[1] = ON'), []);
+  assert.deepEqual(codes(body('DO [1]=ON'), 'warning', mergeConfig({ rules: { 'odd-spacing': 'off' } })), []);
+  const mv = (m: string) => codes(wrap(`   1:${m} ;`, P1), 'warning').filter((c) => c === 'odd-spacing').length;
+  assert.equal(mv('L P[1] 25mm/sec CNT1     '), 0);
+  assert.equal(mv('   L P[1] 25mm/sec CNT R[3:x]'), 0); // the controller writes "CNT R[n]" with a space
+  assert.equal(mv('L P [1] 25mm/sec CNT1'), 1);
+  assert.equal(mv('L P[ 1 ] 25mm/sec CNT1'), 1);
+  assert.equal(mv('L P[1] 25mm/sec CNT 1'), 1);
+});
