@@ -135,7 +135,7 @@ export function allowedPad(kind: StmtKind, text: string): number[] | null {
       }
       return [1];
     }
-    case 'macro': return /\(/.test(t) ? [1] : [4]; // 1 with arguments, 4 without
+    case 'macro': return /\(/.test(t) ? [1] : [4, 5]; // 1 with arguments; 4 without (corpus), 5 also seen on a real controller (`COL GUARD ADJUST     ;`, unverified why)
     default: return [1, 4]; // forms the corpus never shows: unverified
   }
 }

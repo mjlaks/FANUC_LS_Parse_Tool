@@ -68,7 +68,7 @@ Milestones 2 and 3
     | `CALL prog(args)` | 1 |
     | `CALL prog` (no arguments) | 4 |
     | Macro-style line with arguments (`Program Status(5)`) | 1 |
-    | Macro-style line without arguments (`Clear User Page`) | 4 |
+    | Macro-style line without arguments (`Clear User Page`) | 4 or 5 (4 in the corpus; 5 reported valid for `COL GUARD ADJUST`, rule not understood yet) |
     | `WAIT <condition>` | 4 |
     | `WAIT <time>(sec)`, `WAIT <condition> TIMEOUT,LBL[n]` | 1 |
     | `R`/`PR`/`SR` assignment | 4 |
@@ -95,4 +95,4 @@ Not yet covered: type checks between operands (`R[1]=ON`), mixed AND/OR preceden
 - **Index and program suggestions**: inside `P[`, `LBL[` and `R[` the program's known indices are offered (with `R` register names); after `CALL ` / `RUN ` the programs found in the workspace plus `externalPrograms`. Nothing is offered inside comments, disabled `//` lines, quoted strings or `MESSAGE[...]`/register-name text.
 - **Quick fix**: on an `undefined-position` error, the light bulb (Ctrl+.) offers `Create P[n] in /POS`, and `Create all N undefined positions in /POS` when there are several. The record is inserted in index order with all-zero coordinates; `UF`/`UT` come from the last literal `UFRAME_NUM`/`UTOOL_NUM` before the first use of that position (else 1/1), `CONFIG 'N U T, 0, 0, 0'`. A missing `/POS` section is created. **A created position is the zeroed frame origin, not a taught point: teach it on the robot before running the program.**
 - **Other quick fixes**: `Create LBL[n] after this line` for an undefined label, and `Fix spacing on this line` for `bad-spacing`, which rewrites the line number alignment, the gap after the colon, inner gaps and the pad before `;` to the form the checker expects.
-- Settings: `lscheck.completions.enabled`, and `lscheck.completions.semicolon` (turn off if the TP editor extension already adds the `;`).
+- Settings: `lscheck.completions.enabled`; `lscheck.completions.semicolon` (default off: templates stop before the pad and `;`, leaving the `;` to the TP editor extension, which places it itself; turn on to have the template write the controller's pad); `lscheck.autoFixSpacing` (default on: after you move off a line you just edited, its spacing errors are rewritten to the controller form, once per line text, so a pad the TP editor extension changed is put right).

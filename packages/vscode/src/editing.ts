@@ -85,7 +85,7 @@ function completionProvider(deps: EditingDeps): vscode.CompletionItemProvider {
       const wordStart = pos.character - typed.length;
       const facts = factsFor(doc);
       const rest = doc.lineAt(pos.line).text.slice(pos.character);
-      const semicolon = settings.get<boolean>('semicolon', true);
+      const semicolon = settings.get<boolean>('semicolon', false);
       const range = new vscode.Range(pos.line, wordStart, pos.line, pos.character);
 
       return SNIPPETS.map((def, i) => {

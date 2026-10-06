@@ -59,8 +59,13 @@
         },
         "lscheck.completions.semicolon": {
           "type": "boolean",
+          "default": false,
+          "description": "Write the closing ';' (with the controller's padding) in inserted templates. Off by default so the TP editor extension, which places ';' itself, is not fought; spacing is then corrected by lscheck.autoFixSpacing."
+        },
+        "lscheck.autoFixSpacing": {
+          "type": "boolean",
           "default": true,
-          "description": "Include the closing ';' (with the controller's padding) in inserted templates. Turn off if the TP editor extension already adds it."
+          "description": "After you move off a line you just edited, rewrite its bad-spacing problems (pad before ';', gap after the colon, inner gaps) to the controller form. Applied once per line text."
         },
         "lscheck.rules": {
           "type": "object",
