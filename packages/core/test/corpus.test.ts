@@ -23,11 +23,6 @@ function* walk(dir: string): Generator<string> {
 const KNOWN_DEFECTS: Record<string, string[]> = {
   'v9.30/HANDOFF_SMPL.LS': ['undefined-label'],
   'v9.30/LUL_GRINDER_SMPL.LS': ['undefined-label'],
-  // scrub placeholder line ("VENDOR Module-1-07") written with 3 spaces after the line number instead of 2
-  'v9.30/LISTMENU_PSG.LS': ['bad-spacing'],
-  'v9.30/OPERMENU_PSG.LS': ['bad-spacing'],
-  'v9.30/PROMPTOK_PSG.LS': ['bad-spacing'],
-  'v9.30/PROMPTYN_PSG.LS': ['bad-spacing'],
 };
 
 const files = [...walk(root)];
