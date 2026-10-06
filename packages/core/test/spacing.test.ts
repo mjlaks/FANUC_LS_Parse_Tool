@@ -86,6 +86,36 @@ test('spacing errors on the line being edited are suppressed', () => {
   assert.equal(check(src, mergeConfig(), { cursorLine: 0 }).some((d) => d.code === 'bad-spacing'), true);
 });
 
+test('WAIT and register assignments end with 4 spaces', () => {
+  const bad = (s: string) => spacing(s).length;
+  assert.equal(bad(' 104:  R[1]=R[2]+1    ;'), 0);
+  assert.equal(bad(' 104:  PR[1]=P[1]    ;'), 0);
+  assert.equal(bad(' 104:  SR[1]=SR[2]    ;'), 0);
+  assert.equal(bad(' 104:  R[1]=(-3)    ;'), 0);
+  assert.equal(bad(' 104:  R[1]=((R[2]-1)*R[3])  ;'.replace('  ;', ' ;')), 0); // nested arithmetic is padded 1 in the corpus
+  assert.equal(bad(' 104:  R[1]=$MNUTOOLNUM[1] ;'), 0); // system variable reads are padded 1 in the corpus
+  assert.equal(bad(' 104:  R[1]=R[2]+1 ;'), 1);
+  assert.equal(bad(' 104:  R[1]=R[2]+1  ;'), 1);
+  assert.equal(bad(' 104:  R[1]=5     ;'), 1);
+  assert.equal(bad(' 104:  PR[1]=P[1] ;'), 1);
+  assert.equal(bad(' 104:  WAIT DI[1]=ON    ;'), 0);
+  assert.equal(bad(' 104:  WAIT DI[1]=ON ;'), 1);
+  assert.equal(bad(' 104:  WAIT DI[1]=ON TIMEOUT,LBL[1] ;'), 0);
+  assert.equal(bad(' 104:  WAIT DI[1]=ON TIMEOUT,LBL[1]    ;'), 1);
+  assert.equal(bad(' 104:  WAIT    .50(sec) ;'), 0);
+  assert.equal(bad(' 104:  WAIT    .50(sec)    ;'), 1);
+});
+
+test('after the colon: motion 0 spaces, other instructions 2', () => {
+  assert.equal(spacing('  38:L P[6] 25mm/sec CNT1    ;').length, 0);
+  assert.equal(spacing('  38:  LBL[999] ;').length, 0);
+  assert.equal(spacing('  38: L P[6] 25mm/sec CNT1    ;').length, 1);
+  assert.equal(spacing('  38:  L P[6] 25mm/sec CNT1    ;').length, 1);
+  assert.equal(spacing('  38:LBL[999] ;').length, 1);
+  assert.equal(spacing('  38: LBL[999] ;').length, 1);
+  assert.equal(spacing('  38:   LBL[999] ;').length, 1);
+});
+
 test('a gap inside a numeric index is an error', () => {
   assert.ok(errs('  38:L P[1 020] 25mm/sec CNT1    ;').includes('bad-index'));
 });

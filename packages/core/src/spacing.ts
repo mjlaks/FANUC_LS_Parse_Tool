@@ -8,7 +8,7 @@ import type { StmtKind } from './instr';
  *  - line numbers are right-aligned in 4 columns, with no space before the colon
  *  - after the colon: motion 0 spaces, empty statement 3, SELECT cases and ELSE,<action> 9, everything else 2
  *  - before the closing ';': a fixed pad per kind of statement (motion 4, comment 1, JMP/IF/DO... 1, CALL 1 with
- *    arguments and 4 without, WAIT/register assignments 1 or 4)
+ *    arguments and 4 without, WAIT <condition> and register assignments 4, WAIT <time> and WAIT..TIMEOUT 1)
  *  - inside a statement: one space only between words/values (JMP LBL, J P[1] 50% CNT100, IF (...) THEN, AND/OR);
  *    never around = , + - * / < > or inside/before [ ], and WAIT time values are padded to a fixed width
  */
@@ -120,10 +120,13 @@ export function allowedPad(kind: StmtKind, text: string): number[] | null {
     case 'end': case 'pause': case 'abort': case 'vision':
       return [1];
     case 'call': return /\(/.test(t) ? [1] : [4];
-    case 'wait': return [1, 4];
+    // WAIT <time>(sec) and WAIT ... TIMEOUT,LBL[n] end with 1 space; a plain WAIT <condition> ends with 4
+    case 'wait': return /^WAIT\s+[\d.]+\(sec\)$/i.test(t) || /\bTIMEOUT\b/i.test(t) ? [1] : [4];
     case 'if-inline': return /,\s*[JLCA][ \t]/.test(t) ? [1, 4] : [1];
     case 'assign': {
-      if (/^(R|PR|SR)\b/i.test(t)) return [1, 4]; // register assignments are padded by expression shape
+      // register assignments end with 4 spaces; the corpus has 7 nested-arithmetic ones, e.g. R[1]=((R[2]-1)*R[3]), with 1
+      if (/^(R|PR|SR)\b/i.test(t) && t.includes('$')) return [1]; // R[n]=$SYSVAR is padded 1 in the corpus
+      if (/^(R|PR|SR)\b/i.test(t)) return /\((?!-?\d+\))/.test(t.slice(t.indexOf('=') + 1)) ? [1, 4] : [4];
       return [1];
     }
     default: return [1, 4];
