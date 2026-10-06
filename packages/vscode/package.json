@@ -52,6 +52,16 @@
           "default": [],
           "description": "Programs that exist only on the controller; CALL/RUN to these is never reported as unknown-program."
         },
+        "lscheck.completions.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Offer instruction templates and index/program suggestions on /MN lines."
+        },
+        "lscheck.completions.semicolon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the closing ';' (with the controller's padding) in inserted templates. Turn off if the TP editor extension already adds it."
+        },
         "lscheck.rules": {
           "type": "object",
           "default": {},

@@ -88,3 +88,10 @@ Not yet covered: type checks between operands (`R[1]=ON`), mixed AND/OR preceden
 ## VS Code extension
 
 `cd packages/vscode && npm run build`, then run via the Extension Development Host (F5) or package with `vsce`. Requires the TP editor extension `NathanBadanjek.fanuctpp` (declared as an extension dependency) for the `fanuctp_ls` language ID. Package with `npm run package -w ls-check` (core is bundled by esbuild, so vsce runs with `--no-dependencies`).
+
+### Completions and quick fix
+
+- **Templates**: on an `/MN` line, start typing an instruction (`J`, `L`, `IF`, `WAIT`, `CALL`, `VISION`, ...) or press Ctrl+Space right after the line number. Each template is inserted with tab stops and with the exact spacing the checker enforces (motion against the colon, two spaces for everything else, the per-form pad before `;`), so a completed line passes clean. The first word that offers choices (speed unit, `FINE`/`CNT`, `ON`/`OFF`, ...) opens a drop-down on Tab. Multi-line forms (`IF ... THEN`, `SELECT`, `FOR`) insert their following lines with line numbers; the TP editor extension renumbers them as usual. New `P[n]` and `LBL[n]` default to the next unused index. Circular (`C`/`A`) templates are not offered because the corpus has no circular moves to confirm their layout.
+- **Index and program suggestions**: inside `P[`, `LBL[` and `R[` the program's known indices are offered (with `R` register names); after `CALL ` / `RUN ` the programs found in the workspace plus `externalPrograms`.
+- **Quick fix**: on an `undefined-position` error, the light bulb (Ctrl+.) offers `Create P[n] in /POS`, and `Create all N undefined positions in /POS` when there are several. The record is inserted in index order with all-zero coordinates; `UF`/`UT` come from the last literal `UFRAME_NUM`/`UTOOL_NUM` before the first use of that position (else 1/1), `CONFIG 'N U T, 0, 0, 0'`. A missing `/POS` section is created.
+- Settings: `lscheck.completions.enabled`, and `lscheck.completions.semicolon` (turn off if the TP editor extension already adds the `;`).

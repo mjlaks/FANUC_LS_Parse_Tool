@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { check, Diagnostic, mergeConfig, WorkspaceIndex } from '@lscheck/core';
 import { buildWorkspaceIndexAsync, configErrorDiagnostic, loadConfigFor } from '@lscheck/core/dist/node';
+import { registerEditing } from './editing';
 
 // Language ID registered by the TP editor extension; this extension adds diagnostics only.
 const LANGUAGE_ID = 'fanuctp_ls';
@@ -102,6 +103,13 @@ export function activate(context: vscode.ExtensionContext) {
     { dispose: () => timers.forEach(clearTimeout) },
   );
   vscode.workspace.textDocuments.forEach(schedule);
+
+  registerEditing(context, {
+    programs: (doc) => {
+      const loaded = configFor(doc);
+      return [...(workspaceFor(doc, loaded.dir)?.programs ?? []), ...loaded.config.externalPrograms.map((n) => n.toUpperCase())];
+    },
+  });
 }
 
 export function deactivate() {}
